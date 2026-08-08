@@ -1,25 +1,33 @@
 import os
+import json
 import requests
+import gspread
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
 TOKEN = os.environ.get("TOKEN")
 BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}"
+ADMIN_CHAT_ID = 1262888912 # آیدی عددی خودت رو اینجا بذار
 
-# ⚠️ بسیار مهم: آیدی عددی اکانت خودت رو در بله اینجا بذار
-# (برای پیدا کردن آیدیت میتونی به @userinfobot پیام بدی)
-ADMIN_CHAT_ID = 1262888912
+# اطلاعات گوگل شیت از تنظیمات رندر خونده میشه
+CREDS = json.loads(os.environ.get("GOOGLE_CREDS"))
+SHEET_ID = os.environ.get("SHEET_ID")
 
-# اینجا یه دیتابیس ساده (غیرواقعی) برای تست اعتبار ساختیم
-# در پروژه‌های واقعی باید از دیتابیس مثل SQLite استفاده کنی
-USER_BALANCES = {
-    "1234": {"name": "علی", "balance": 150000},
-    "0110362330": {"name": "رضا", "balance": 50000}
+# لیست محصولات و قیمت‌ها (می‌تونی اینجا رو تغییر بدی یا بیشتر کنی)
+PRODUCTS = {
+    "101": {"name": "کص دختر", "price": 20000},
+    "102": {"name": "کون مهدی", "price": 120000},
+    "103": {"name": "میلف تو پر", "price": 50000}
 }
 
-# حافظه موقت ربات برای یادآوری اینکه هر کاربر تو کدوم مرحله هست
 user_states = {}
+
+# اتصال به گوگل شیت
+def get_sheet():
+    gc = gspread.service_account_from_dict(CREDS)
+    sh = gc.open_by_key(SHEET_ID).sheet1
+    return sh
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -27,28 +35,26 @@ def webhook():
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
         text = data["message"].get("text", "")
-        
-        # دکمه شیشه‌ای که کاربر زده
-        callback_data = data["message"].get("data") 
-
         handle_user(chat_id, text)
-        
-    # برای وقتی کاربر روی دکمه‌ها کلیک می‌کنه
     elif "callback_query" in data:
         chat_id = data["callback_query"]["from"]["id"]
         callback_data = data["callback_query"]["data"]
         handle_callback(chat_id, callback_data)
-
     return jsonify({"ok": True})
 
 def handle_callback(chat_id, data):
     if data == "order":
         user_states[chat_id] = {"step": "waiting_for_product"}
-        send_message(chat_id, "🛒 لطفاً کد جنس یا نام محصولی که می‌خوای سفارش بدی رو بفرست:")
+        # ساختن لیست محصولات برای نمایش به کاربر
+        product_list = "📦 لیست محصولات:\n\n"
+        for code, info in PRODUCTS.items():
+            product_list += f"کد {code}: {info['name']} (قیمت: {info['price']:,} تومان)\n"
+        product_list += "\nلطفاً کد محصول مورد نظرت رو بفرست:"
+        send_message(chat_id, product_list)
     
     elif data == "balance":
-        user_states[chat_id] = {"step": "waiting_for_password"}
-        send_message(chat_id, "🔑 لطفاً رمز کاربری خودت رو بفرست تا اعتبارت رو بگم:")
+        user_states[chat_id] = {"step": "waiting_for_pass_check"}
+        send_message(chat_id, "🔑 لطفاً رمز کاربری خودت رو بفرست تا موجودیت رو بگم:")
 
 def handle_user(chat_id, text):
     state = user_states.get(chat_id)
@@ -57,51 +63,81 @@ def handle_user(chat_id, text):
         show_main_menu(chat_id)
         return
 
-    # اگر کاربر تو مرحله ثبت سفارش هست
+    # مرحله 1: گرفتن کد محصول
     if state and state["step"] == "waiting_for_product":
-        state["step"] = "waiting_for_name"
-        state["product"] = text
-        send_message(chat_id, f"✅ محصول «{text}» ثبت شد.\n\n👤 حالا نام و نام خانوادگی خودت رو بفرست:")
-
-    # اگر کاربر تو مرحله گرفتن اسم هست
-    elif state and state["step"] == "waiting_for_name":
-        product = state["product"]
-        customer_name = text
-        del user_states[chat_id] # پاک کردن حالت
-        
-        # فرستادن پیام به ادمین
-        admin_text = f"🚨 **سفارش جدید**\n\n👤 نام مشتری: {customer_name}\n📦 محصول درخواستی: {product}"
-        send_message(ADMIN_CHAT_ID, admin_text)
-        
-        send_message(chat_id, "🎉 سفارش شما با موفقیت ثبت شد و به ادمین ارسال شد. به زودی باهات تماس می‌گیریم.")
-
-    # اگر کاربر تو مرحله چک کردن اعتبار هست
-    elif state and state["step"] == "waiting_for_password":
-        del user_states[chat_id] # پاک کردن حالت
-        
-        if text in USER_BALANCES:
-            user_info = USER_BALANCES[text]
-            balance = user_info["balance"]
-            send_message(chat_id, f"💰 سلام {user_info['name']} عزیز!\n\nموجودی حساب شما: **{balance:,} تومان** می‌باشد.")
+        if text in PRODUCTS:
+            state["step"] = "waiting_for_pass_buy"
+            state["product_code"] = text
+            prod = PRODUCTS[text]
+            send_message(chat_id, f"✅ محصول «{prod['name']}» با قیمت {prod['price']:,} تومان انتخاب شد.\n\n🔑 برای تایید خرید و کسر از اعتبار، لطفاً رمز کاربری خودت رو بفرست:")
         else:
-            send_message(chat_id, "❌ رمز عبور اشتباه است. لطفاً دوباره از منوی اصلی اقدام کنید.")
+            send_message(chat_id, "❌ کد محصول اشتباهه! لطفاً از لیست بالا یه کد معتبر بفرست.")
+
+    # مرحله 2: گرفتن رمز برای خرید
+    elif state and state["step"] == "waiting_for_pass_buy":
+        password = text
+        product_code = state["product_code"]
+        del user_states[chat_id]
+        
+        try:
+            sheet = get_sheet()
+            records = sheet.get_all_records()
+            user_record = next((r for r in records if str(r['password']) == password), None)
+            
+            if not user_record:
+                send_message(chat_id, "❌ رمز عبور اشتباه است.")
+                return
+                
+            balance = int(user_record['balance'])
+            prod = PRODUCTS[product_code]
+            
+            if balance >= prod['price']:
+                # کسر پول
+                new_balance = balance - prod['price']
+                
+                # آپدیت توی گوگل شیت
+                cell = sheet.find(str(password))
+                sheet.update_cell(cell.row, 2, new_balance)
+                
+                send_message(chat_id, f"🎉 خرید موفق!\n محصول: {prod['name']}\n مبلغ کسر شده: {prod['price']:,} تومان\n موجودی جدید شما: {new_balance:,} تومان")
+                
+                admin_text = f"🛒 خرید جدید:\nرمز کاربر: {password}\nمحصول: {prod['name']}\nموجودی باقیمانده: {new_balance:,}"
+                send_message(ADMIN_CHAT_ID, admin_text)
+            else:
+                send_message(chat_id, f"❌ موجودی حساب شما کافی نیست!\n موجودی فعلی: {balance:,} تومان\n قیمت محصول: {prod['price']:,} تومان")
+        except Exception as e:
+            send_message(chat_id, "خطایی در ارتباط با سرور رخ داد. لطفاً دوباره تلاش کنید.")
+            print(f"Sheet Error: {e}")
+
+    # مرحله 3: گرفتن رمز برای استعلام اعتبار
+    elif state and state["step"] == "waiting_for_pass_check":
+        del user_states[chat_id]
+        try:
+            sheet = get_sheet()
+            records = sheet.get_all_records()
+            user_record = next((r for r in records if str(r['password']) == password), None)
+            
+            if user_record:
+                balance = int(user_record['balance'])
+                send_message(chat_id, f"💰 موجودی حساب شما: **{balance:,} تومان** می‌باشد.")
+            else:
+                send_message(chat_id, "❌ رمز عبور اشتباه است.")
+        except Exception as e:
+            send_message(chat_id, "خطا در ارتباط با سرور.")
+            print(f"Sheet Error: {e}")
             
     else:
-        send_message(chat_id, "لطفاً از منوی پایین گزینه مورد نظرت رو انتخاب کن.")
+        send_message(chat_id, "لطفاً از منوی اصلی گزینه مورد نظرت رو انتخاب کن.")
 
 def show_main_menu(chat_id):
     url = f"{BASE_URL}/sendMessage"
     payload = {
         "chat_id": chat_id,
-        "text": "سلام! به ربات فروشگاه من خوش اومدی.\nلطفاً یکی از گزینه‌های زیر رو انتخاب کن:",
+        "text": "سلام! به ربات فروشگاه خوش اومدی.",
         "reply_markup": {
             "inline_keyboard": [
-                [
-                    {"text": "🛒 ثبت سفارش جدید", "callback_data": "order"}
-                ],
-                [
-                    {"text": "💰 استعلام موجودی/اعتبار", "callback_data": "balance"}
-                ]
+                [{"text": "🛒 خرید محصول", "callback_data": "order"}],
+                [{"text": "💰 استعلام اعتبار", "callback_data": "balance"}]
             ]
         }
     }
