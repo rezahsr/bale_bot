@@ -62,7 +62,7 @@ def handle_callback(chat_id, data):
     
     elif data == "balance":
         user_states[chat_id] = {"step": "waiting_for_pass_check"}
-        send_message(chat_id, "🔑 لطفاً رمز کاربری خودت رو بفرست تا موجودیت رو بگم:")
+        send_message(chat_id, "🔑 برای مشاهده موجودی طوس کوین کد کاربری خود را وارد کنید:")
 
 def handle_user(chat_id, text):
     state = user_states.get(chat_id)
@@ -91,7 +91,7 @@ def handle_user(chat_id, text):
                 selected_products.append(products[code])
                 total_price += products[code]['price']
             else:
-                send_message(chat_id, f"❌ کد محصول «{code}» اشتباه است. لطفاً دوباره کدهای معتبر رو بفرست:")
+                send_message(chat_id, f"❌ کد محصول «{code}» پیدا نشد. لطفاً دوباره کدهای معتبر رو بفرست:")
                 return
         
         # ذخیره اطلاعات در حافظه ربات
@@ -100,7 +100,7 @@ def handle_user(chat_id, text):
         state["total_price"] = total_price
         
         prod_names = " و ".join([p['name'] for p in selected_products])
-        send_message(chat_id, f"✅ محصولات «{prod_names}» با مجموع قیمت {total_price:,} طوس کوین انتخاب شد.\n\n🔑 برای تایید خرید و کسر از اعتبار، لطفاً رمز کاربری خودت رو بفرست:")
+        send_message(chat_id, f"✅ محصولات «{prod_names}» با مجموع قیمت {total_price:,} طوس کوین انتخاب شد.\n\n🔑 برای تایید خرید و کسر از اعتبار، لطفاً کد کاربری خودت رو بفرست:")
 
     # مرحله 2: گرفتن رمز برای خرید و کسر طوس کوین
     elif state and state["step"] == "waiting_for_pass_buy":
@@ -179,7 +179,8 @@ def show_main_menu(chat_id):
     url = f"{BASE_URL}/sendMessage"
     payload = {
         "chat_id": chat_id,
-        "text": "سلام! به ربات فروشگاه خوش اومدی.",
+        "text": "سلام! به ربات فورشگاه توس کلا خوش اومدی.",
+        "text": "برای سفارش محصول روی سفارش محصول و برای استعلام از توس کوین روی استعلام اعتبار کلید کنید .",
         "reply_markup": {
             "inline_keyboard": [
                 [{"text": "🛒 خرید محصول", "callback_data": "order"}],
