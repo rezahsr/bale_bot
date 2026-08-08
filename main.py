@@ -179,8 +179,7 @@ def show_main_menu(chat_id):
     url = f"{BASE_URL}/sendMessage"
     payload = {
         "chat_id": chat_id,
-        "text": "سلام! به ربات فورشگاه توس کلا خوش اومدی.",
-        "text": "برای سفارش محصول روی سفارش محصول و برای استعلام از توس کوین روی استعلام اعتبار کلید کنید .",
+        "text": "به ربات فورشگاه توس کلا خوش اومدی .",
         "reply_markup": {
             "inline_keyboard": [
                 [{"text": "🛒 خرید محصول", "callback_data": "order"}],
