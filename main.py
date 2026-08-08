@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 TOKEN = os.environ.get("TOKEN")
 BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}"
-ADMIN_CHAT_ID = 1262888912 # آیدی عددی خودت رو اینجا بذار
+ADMIN_CHAT_ID = 1262888912 # حتماً آیدی عددی خودت رو اینجا بذار
 
 # اطلاعات گوگل شیت از تنظیمات رندر خونده میشه
 CREDS = json.loads(os.environ.get("GOOGLE_CREDS"))
@@ -16,9 +16,13 @@ SHEET_ID = os.environ.get("SHEET_ID")
 
 # لیست محصولات و قیمت‌ها (می‌تونی اینجا رو تغییر بدی یا بیشتر کنی)
 PRODUCTS = {
-    "101": {"name": "کص دختر", "price": 20000},
-    "102": {"name": "کون مهدی", "price": 120000},
-    "103": {"name": "میلف تو پر", "price": 50000}
+    "101": {"name": "میلف تو پر", "price": 50000},
+    "102": {"name": "کص دختر", "price": 120000},
+    "103": {"name": "هدفون بلوتوث", "price": 15000}
+    "104": {"name": "عمو مسعود", "price": 500}
+    "105": {"name": "کون سیاه آقا سید", "price": 10}
+    "106": {"name": "فنبوی (اقا سید)", "price": 25000}
+    "107": {"name": "گاییدن مادر شما", "price": 15000}
 }
 
 user_states = {}
@@ -109,8 +113,9 @@ def handle_user(chat_id, text):
             send_message(chat_id, "خطایی در ارتباط با سرور رخ داد. لطفاً دوباره تلاش کنید.")
             print(f"Sheet Error: {e}")
 
-    # مرحله 3: گرفتن رمز برای استعلام اعتبار
+    # مرحله 3: گرفتن رمز برای استعلام اعتبار (باگ اینجا برطرف شد)
     elif state and state["step"] == "waiting_for_pass_check":
+        password = text  # این خطی که قبلاً جا افتاده بود اضافه شد
         del user_states[chat_id]
         try:
             sheet = get_sheet()
