@@ -22,37 +22,24 @@ def get_sheet():
     sh = gc.open_by_key(SHEET_ID).sheet1
     return sh
 
-# تابع جدید: خواندن محصولات از ستون های E, F, G
+# تابع جدید و بسیار سریع برای خواندن فقط ستون‌های محصولات (E, F, G)
 def get_products():
     sheet = get_sheet()
-    data = sheet.get_all_values()
-    if not data:
-        return {}
-        
-    products = {}
-    headers = data[0]
+    col_codes = sheet.col_values(5)  # ستون E (کد محصول)
+    col_names = sheet.col_values(6)  # ستون F (نام محصول)
+    col_prices = sheet.col_values(7) # ستون G (قیمت)
     
-    try:
-        # پیدا کردن شماره ستون ها بر اساس اسمی که تو ردیف اول نوشتی
-        code_idx = headers.index('code')
-        name_idx = headers.index('name')
-        price_idx = headers.index('price')
-    except ValueError:
-        print("Error: ستون‌های code, name یا price در شیت پیدا نشد.")
-        return {}
+    products = {}
+    for i in range(1, len(col_codes)): # از ردیف 2 به بعد می‌خونه (ردیف 1 عنوان هست)
+        code = col_codes[i].strip()
+        name = col_names[i].strip() if i < len(col_names) else ""
+        price_str = col_prices[i].strip() if i < len(col_prices) else ""
         
-    # خواندن ردیف‌های بعدی و تبدیل به دیکشنری
-    for row in data[1:]:
-        if len(row) > max(code_idx, name_idx, price_idx):
-            code = row[code_idx].strip()
-            name = row[name_idx].strip()
-            price_str = row[price_idx].strip()
-            
-            if code and name and price_str:
-                try:
-                    products[code] = {"name": name, "price": int(price_str)}
-                except:
-                    pass
+        if code and name and price_str:
+            try:
+                products[code] = {"name": name, "price": int(price_str)}
+            except:
+                pass
     return products
 
 @app.route('/webhook', methods=['POST'])
@@ -71,18 +58,8 @@ def webhook():
 def handle_callback(chat_id, data):
     if data == "order":
         user_states[chat_id] = {"step": "waiting_for_product"}
-        
-        # گرفتن لیست محصولات از گوگل شیت
-        products = get_products()
-        if not products:
-            send_message(chat_id, "❌ خطا در خواندن لیست محصولات. لطفاً دوباره تلاش کنید.")
-            return
-            
-        product_list = "📦 لیست محصولات:\n\n"
-        for code, info in products.items():
-            product_list += f"کد {code}: {info['name']} (قیمت: {info['price']:,} طوس کوین)\n"
-        product_list += "\nلطفاً کد محصول مورد نظرت رو بفرست:"
-        send_message(chat_id, product_list)
+        # طبق خواسته شما لیست حذف شد
+        send_message(chat_id, "📦 لطفاً کد محصول مورد نظرت رو بفرست:")
     
     elif data == "balance":
         user_states[chat_id] = {"step": "waiting_for_pass_check"}
@@ -97,7 +74,7 @@ def handle_user(chat_id, text):
 
     # مرحله 1: گرفتن کد محصول از کاربر
     if state and state["step"] == "waiting_for_product":
-        products = get_products() # هر بار از شیت آپدیت می‌خونه
+        products = get_products() 
         
         if text in products:
             state["step"] = "waiting_for_pass_buy"
@@ -105,9 +82,9 @@ def handle_user(chat_id, text):
             prod = products[text]
             send_message(chat_id, f"✅ محصول «{prod['name']}» با قیمت {prod['price']:,} طوس کوین انتخاب شد.\n\n🔑 برای تایید خرید و کسر از اعتبار، لطفاً رمز کاربری خودت رو بفرست:")
         else:
-            send_message(chat_id, "❌ کد محصول اشتباهه! لطفاً از لیست بالا یه کد معتبر بفرست.")
+            send_message(chat_id, "❌ کد محصول اشتباهه! لطفاً کد معتبر رو بفرست.")
 
-    # مرحله 2: گرفتن رمز برای خرید و کسر پول
+    # مرحله 2: گرفتن رمز برای خرید و کسر طوس کوین
     elif state and state["step"] == "waiting_for_pass_buy":
         password = text
         product_code = state["product_code"]
@@ -122,26 +99,33 @@ def handle_user(chat_id, text):
                 return
                 
             prod = products[product_code]
-            records = sheet.get_all_records()
-            user_record = next((r for r in records if str(r['password']) == password), None)
             
-            if not user_record:
+            # خواندن سریع فقط ستون A (رمز) و ستون B (موجودی)
+            col_passwords = sheet.col_values(1) 
+            col_balances = sheet.col_values(2)
+            
+            user_idx = -1
+            for i in range(1, len(col_passwords)):
+                if str(col_passwords[i].strip()) == password:
+                    user_idx = i
+                    break
+            
+            if user_idx == -1:
                 send_message(chat_id, "❌ رمز عبور اشتباه است.")
                 return
                 
-            balance = int(user_record['balance'])
+            balance = int(col_balances[user_idx])
             
             if balance >= prod['price']:
-                # کسر پول از موجودی
                 new_balance = balance - prod['price']
                 
-                # پیدا کردن سلول رمز و آپدیت کردن ستون balance (ستون 2)
-                cell = sheet.find(str(password))
-                sheet.update_cell(cell.row, 2, new_balance)
+                # آپدیت کردن موجودی در ستون B (شماره ستون 2)
+                # چون لیست‌ها از 0 میشمارن ولی ردیف‌های شیت از 1، پس user_idx + 1
+                sheet.update_cell(user_idx + 1, 2, new_balance)
                 
                 send_message(chat_id, f"🎉 خرید موفق!\n محصول: {prod['name']}\n مبلغ کسر شده: {prod['price']:,} طوس کوین\n موجودی جدید شما: {new_balance:,} طوس کوین")
                 
-                admin_text = f"🛒 خرید جدید:\nرمز کاربر: {password}\nمحصول: {prod['name']}\nموجودی باقیمانده: {new_balance:,}"
+                admin_text = f"🛒 خرید جدید:\nرمز کاربر: {password}\nمحصول: {prod['name']}\nموجودی باقیمانده: {new_balance:,} طوس کوین"
                 send_message(ADMIN_CHAT_ID, admin_text)
             else:
                 send_message(chat_id, f"❌ موجودی حساب شما کافی نیست!\n موجودی فعلی: {balance:,} طوس کوین\n قیمت محصول: {prod['price']:,} طوس کوین")
@@ -155,11 +139,17 @@ def handle_user(chat_id, text):
         del user_states[chat_id]
         try:
             sheet = get_sheet()
-            records = sheet.get_all_records()
-            user_record = next((r for r in records if str(r['password']) == password), None)
+            col_passwords = sheet.col_values(1) 
+            col_balances = sheet.col_values(2)
             
-            if user_record:
-                balance = int(user_record['balance'])
+            user_idx = -1
+            for i in range(1, len(col_passwords)):
+                if str(col_passwords[i].strip()) == password:
+                    user_idx = i
+                    break
+                    
+            if user_idx != -1:
+                balance = int(col_balances[user_idx])
                 send_message(chat_id, f"💰 موجودی حساب شما: **{balance:,} طوس کوین** می‌باشد.")
             else:
                 send_message(chat_id, "❌ رمز عبور اشتباه است.")
@@ -174,7 +164,7 @@ def show_main_menu(chat_id):
     url = f"{BASE_URL}/sendMessage"
     payload = {
         "chat_id": chat_id,
-        "text": "سلام! به طوس کالا خوش اومدی.",
+        "text": "سلام! به ربات طوس کالا خوش اومدی.",
         "reply_markup": {
             "inline_keyboard": [
                 [{"text": "🛒 سفارش محصول", "callback_data": "order"}],
