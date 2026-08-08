@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 TOKEN = os.environ.get("TOKEN")
 BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}"
-ADMIN_CHAT_ID = 1262888912 # حتماً آیدی عددی خودت رو اینجا بذار
+ADMIN_CHAT_ID = 123456789 # حتماً آیدی عددی خودت رو اینجا بذار
 
 # اطلاعات گوگل شیت از تنظیمات رندر خونده میشه
 CREDS = json.loads(os.environ.get("GOOGLE_CREDS"))
@@ -62,13 +62,46 @@ def handle_callback(chat_id, data):
     
     elif data == "balance":
         user_states[chat_id] = {"step": "waiting_for_pass_check"}
-        send_message(chat_id, "🔑 برای مشاهده موجودی طوس کوین کد کاربری خود را وارد کنید:")
+        send_message(chat_id, "🔑 لطفاً رمز کاربری خودت رو بفرست تا موجودیت رو بگم:")
 
 def handle_user(chat_id, text):
     state = user_states.get(chat_id)
 
     if text == "/start":
-        show_main_menu(chat_id)
+        # اول باید لاگین کنه
+        user_states[chat_id] = {"step": "waiting_for_login"}
+        send_message(chat_id, "👋 سلام! به فروشگاه ما خوش اومدی.\n\n🔑 لطفاً برای ورود، رمز کاربری خودت رو بفرست:")
+        return
+
+    # مرحله 0: لاگین کاربر و خوش‌آمدگویی با اسم
+    if state and state["step"] == "waiting_for_login":
+        password = text
+        try:
+            sheet = get_sheet()
+            col_passwords = sheet.col_values(1) 
+            col_names = sheet.col_values(3)  # خواندن ستون C برای اسم
+            
+            user_idx = -1
+            for i in range(1, len(col_passwords)):
+                if str(col_passwords[i].strip()) == password:
+                    user_idx = i
+                    break
+            
+            if user_idx != -1:
+                user_name = col_names[user_idx].strip() # گرفتن اسم کاربر
+                del user_states[chat_id] # پاک کردن حالت لاگین
+                
+                # پیام خوش آمدگویی شخصی سازی شده
+                send_message(chat_id, f"✅ {user_name} عزیز، سلام! به ربات فروشگاه خوش آمدی.")
+                
+                # نمایش منوی اصلی بعد از لاگین موفق
+                show_main_menu(chat_id)
+            else:
+                # اگر رمز اشتباه بود، دوباره ازش بپرس
+                send_message(chat_id, "❌ رمز عبور اشتباه است. لطفاً دوباره تلاش کن:")
+        except Exception as e:
+            send_message(chat_id, "خطا در ارتباط با سرور.")
+            print(f"Sheet Error Login: {e}")
         return
 
     # مرحله 1: گرفتن کد(های) محصول از کاربر
@@ -85,22 +118,22 @@ def handle_user(chat_id, text):
         selected_products = []
         total_price = 0
         
-        # بررسی اینکه آیا همه کدها درست هستن یا نه
         for code in input_codes:
             if code in products:
                 selected_products.append(products[code])
                 total_price += products[code]['price']
             else:
-                send_message(chat_id, f"❌ کد محصول «{code}» پیدا نشد. لطفاً دوباره کدهای معتبر رو بفرست:")
+                send_message(chat_id, f"❌ کد محصول «{code}» اشتباه است. لطفاً دوباره کدهای معتبر رو بفرست:")
                 return
         
-        # ذخیره اطلاعات در حافظه ربات
         state["step"] = "waiting_for_pass_buy"
         state["selected_products"] = selected_products
         state["total_price"] = total_price
         
         prod_names = " و ".join([p['name'] for p in selected_products])
-        send_message(chat_id, f"✅ محصولات «{prod_names}» با مجموع قیمت {total_price:,} طوس کوین انتخاب شد.\n\n🔑 برای تایید خرید و کسر از اعتبار، لطفاً کد کاربری خودت رو بفرست:")
+        
+        # تغییر در اینجا: تاکید بر امنیت کاربر
+        send_message(chat_id, f"✅ محصولات «{prod_names}» با مجموع قیمت {total_price:,} طوس کوین انتخاب شد.\n\n🔒 برای حفظ امنیت حساب شما، لطفاً رمز کاربری خودت رو مجدداً وارد کن تا خرید نهایی بشه:")
 
     # مرحله 2: گرفتن رمز برای خرید و کسر طوس کوین
     elif state and state["step"] == "waiting_for_pass_buy":
@@ -112,10 +145,9 @@ def handle_user(chat_id, text):
         try:
             sheet = get_sheet()
             
-            # خواندن اطلاعات کاربر (ستون A رمز، ستون B موجودی، ستون C نام)
             col_passwords = sheet.col_values(1) 
             col_balances = sheet.col_values(2)
-            col_names = sheet.col_values(3)  # خواندن ستون C برای اسم
+            col_names = sheet.col_values(3)  # ستون C برای اسم
             
             user_idx = -1
             for i in range(1, len(col_passwords)):
@@ -124,22 +156,19 @@ def handle_user(chat_id, text):
                     break
             
             if user_idx == -1:
-                send_message(chat_id, "❌ رمز عبور اشتباه است.")
+                send_message(chat_id, "❌ رمز عبور اشتباه است و خرید لغو شد.")
                 return
                 
             balance = int(col_balances[user_idx])
-            user_name = col_names[user_idx].strip() # گرفتن اسم کاربر از ستون C
+            user_name = col_names[user_idx].strip() 
             
             if balance >= total_price:
                 new_balance = balance - total_price
-                
-                # آپدیت کردن موجودی در ستون B
                 sheet.update_cell(user_idx + 1, 2, new_balance)
                 
                 prod_names = "، ".join([p['name'] for p in selected_products])
                 send_message(chat_id, f"🎉 خرید موفق!\n محصولات: {prod_names}\n مبلغ کسر شده: {total_price:,} طوس کوین\n موجودی جدید شما: {new_balance:,} طوس کوین")
                 
-                # پیامی که برای ادمین (شما) فرستاده میشه
                 admin_text = f"🛒 خرید جدید:\n👤 نام مشتری: {user_name}\n📦 محصولات: {prod_names}\n💰 مبلغ کل کسر شده: {total_price:,} طوس کوین\n💎 موجودی باقیمانده مشتری: {new_balance:,} طوس کوین"
                 send_message(ADMIN_CHAT_ID, admin_text)
             else:
@@ -179,10 +208,10 @@ def show_main_menu(chat_id):
     url = f"{BASE_URL}/sendMessage"
     payload = {
         "chat_id": chat_id,
-        "text": "به ربات فورشگاه توس کلا خوش اومدی .",
+        "text": "لطفاً یکی از گزینه‌های زیر رو انتخاب کن:",
         "reply_markup": {
             "inline_keyboard": [
-                [{"text": "🛒 خرید محصول", "callback_data": "order"}],
+                [{"text": "🛒 سفارش محصول", "callback_data": "order"}],
                 [{"text": "💰 استعلام اعتبار", "callback_data": "balance"}]
             ]
         }
