@@ -15,6 +15,7 @@ CREDS = json.loads(os.environ.get("GOOGLE_CREDS"))
 SHEET_ID = os.environ.get("SHEET_ID")
 
 user_states = {}
+logged_in_users = {} # این دیکشنری جدید هست که رمز کسایی که لاگین کردن رو نگه میداره
 
 # اتصال به گوگل شیت
 def get_sheet():
@@ -42,6 +43,28 @@ def get_products():
                 pass
     return products
 
+# تابع جداگانه برای استعلام موجودی (تکرار نشدن کد)
+def fetch_and_send_balance(chat_id, password):
+    try:
+        sheet = get_sheet()
+        col_passwords = sheet.col_values(1) 
+        col_balances = sheet.col_values(2)
+        
+        user_idx = -1
+        for i in range(1, len(col_passwords)):
+            if str(col_passwords[i].strip()) == password:
+                user_idx = i
+                break
+                
+        if user_idx != -1:
+            balance = int(col_balances[user_idx])
+            send_message(chat_id, f"💰 موجودی حساب شما: **{balance:,} طوس کوین** می‌باشد.")
+        else:
+            send_message(chat_id, "❌ خطا: حساب کاربری یافت نشد. لطفاً دوباره /start رو بزنید.")
+    except Exception as e:
+        send_message(chat_id, "خطا در ارتباط با سرور.")
+        print(f"Sheet Error Balance: {e}")
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.json
@@ -61,14 +84,19 @@ def handle_callback(chat_id, data):
         send_message(chat_id, "📦 لطفاً کد محصول(های) مورد نظرت رو بفرست:\n(اگر چند تا هست، با فاصله یا کاما جدا کن. مثال: 101 103)")
     
     elif data == "balance":
-        user_states[chat_id] = {"step": "waiting_for_pass_check"}
-        send_message(chat_id, "🔑 لطفاً رمز کاربری خودت رو بفرست تا موجودیت رو بگم:")
+        # تغییر جدید: چک میکنه آیا کاربر قبلاً لاگین کرده یا نه؟
+        if chat_id in logged_in_users:
+            # اگر لاگین کرده بود، مستقیم موجودی رو نشون بده بدون اینکه رمز بپرسه
+            fetch_and_send_balance(chat_id, logged_in_users[chat_id])
+        else:
+            # اگر هرجوری لاگین نبود، ازش رمز بخواه
+            user_states[chat_id] = {"step": "waiting_for_pass_check"}
+            send_message(chat_id, "🔑 لطفاً رمز کاربری خودت رو بفرست تا موجودیت رو بگم:")
 
 def handle_user(chat_id, text):
     state = user_states.get(chat_id)
 
     if text == "/start":
-        # اول باید لاگین کنه
         user_states[chat_id] = {"step": "waiting_for_login"}
         send_message(chat_id, "👋 سلام! به فروشگاه ما خوش اومدی.\n\n🔑 لطفاً برای ورود، رمز کاربری خودت رو بفرست:")
         return
@@ -88,16 +116,15 @@ def handle_user(chat_id, text):
                     break
             
             if user_idx != -1:
-                user_name = col_names[user_idx].strip() # گرفتن اسم کاربر
-                del user_states[chat_id] # پاک کردن حالت لاگین
+                user_name = col_names[user_idx].strip() 
+                del user_states[chat_id] 
                 
-                # پیام خوش آمدگویی شخصی سازی شده
+                # تغییر جدید: رمز کاربر رو تو حافظه نگه می‌داره تا بعداً برای استعلام نیاز نپرسه
+                logged_in_users[chat_id] = password 
+                
                 send_message(chat_id, f"✅ {user_name} عزیز، سلام! به ربات فروشگاه خوش آمدی.")
-                
-                # نمایش منوی اصلی بعد از لاگین موفق
                 show_main_menu(chat_id)
             else:
-                # اگر رمز اشتباه بود، دوباره ازش بپرس
                 send_message(chat_id, "❌ رمز عبور اشتباه است. لطفاً دوباره تلاش کن:")
         except Exception as e:
             send_message(chat_id, "خطا در ارتباط با سرور.")
@@ -107,8 +134,6 @@ def handle_user(chat_id, text):
     # مرحله 1: گرفتن کد(های) محصول از کاربر
     if state and state["step"] == "waiting_for_products":
         products = get_products() 
-        
-        # جایگزینی کاما با فاصله و جدا کردن کدها
         input_codes = text.replace(',', ' ').split()
         
         if not input_codes:
@@ -131,11 +156,9 @@ def handle_user(chat_id, text):
         state["total_price"] = total_price
         
         prod_names = " و ".join([p['name'] for p in selected_products])
-        
-        # تغییر در اینجا: تاکید بر امنیت کاربر
         send_message(chat_id, f"✅ محصولات «{prod_names}» با مجموع قیمت {total_price:,} طوس کوین انتخاب شد.\n\n🔒 برای حفظ امنیت حساب شما، لطفاً رمز کاربری خودت رو مجدداً وارد کن تا خرید نهایی بشه:")
 
-    # مرحله 2: گرفتن رمز برای خرید و کسر طوس کوین
+    # مرحله 2: گرفتن رمز برای خرید و کسر طوس کوین (اینجا هنوز امنیته و رمز میپرسه)
     elif state and state["step"] == "waiting_for_pass_buy":
         password = text
         selected_products = state["selected_products"]
@@ -144,10 +167,9 @@ def handle_user(chat_id, text):
         
         try:
             sheet = get_sheet()
-            
             col_passwords = sheet.col_values(1) 
             col_balances = sheet.col_values(2)
-            col_names = sheet.col_values(3)  # ستون C برای اسم
+            col_names = sheet.col_values(3)  
             
             user_idx = -1
             for i in range(1, len(col_passwords)):
@@ -177,29 +199,11 @@ def handle_user(chat_id, text):
             send_message(chat_id, "خطایی در ارتباط با سرور رخ داد.")
             print(f"Sheet Error Buy: {e}")
 
-    # مرحله 3: استعلام اعتبار
+    # اگر کسی از روش قدیمی خواست استعلام بگیره (احتمالش کمه ولی برای امنیت کد گذاشتم)
     elif state and state["step"] == "waiting_for_pass_check":
         password = text
         del user_states[chat_id]
-        try:
-            sheet = get_sheet()
-            col_passwords = sheet.col_values(1) 
-            col_balances = sheet.col_values(2)
-            
-            user_idx = -1
-            for i in range(1, len(col_passwords)):
-                if str(col_passwords[i].strip()) == password:
-                    user_idx = i
-                    break
-                    
-            if user_idx != -1:
-                balance = int(col_balances[user_idx])
-                send_message(chat_id, f"💰 موجودی حساب شما: **{balance:,} طوس کوین** می‌باشد.")
-            else:
-                send_message(chat_id, "❌ رمز عبور اشتباه است.")
-        except Exception as e:
-            send_message(chat_id, "خطا در ارتباط با سرور.")
-            print(f"Sheet Error Balance: {e}")
+        fetch_and_send_balance(chat_id, password)
             
     else:
         send_message(chat_id, "لطفاً از منوی اصلی گزینه مورد نظرت رو انتخاب کن.")
@@ -208,7 +212,7 @@ def show_main_menu(chat_id):
     url = f"{BASE_URL}/sendMessage"
     payload = {
         "chat_id": chat_id,
-        "text": "لطفاً یکی از گزینه‌های زیر رو انتخاب کن:",
+        "text": "گزینه مد نظر خود را انتخاب کنید:",
         "reply_markup": {
             "inline_keyboard": [
                 [{"text": "🛒 سفارش محصول", "callback_data": "order"}],
