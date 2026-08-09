@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 TOKEN = os.environ.get("TOKEN")
 BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}"
-ADMIN_CHAT_ID = 1262888912 # حتماً آیدی عددی خودت رو اینجا بذار
+ADMIN_CHAT_ID = 123456789 # حتماً آیدی عددی خودت رو اینجا بذار
 
 # اطلاعات گوگل شیت از تنظیمات رندر خونده میشه
 CREDS = json.loads(os.environ.get("GOOGLE_CREDS"))
@@ -101,25 +101,21 @@ def handle_callback(chat_id, data):
             send_message(chat_id, "🔑 لطفاً رمز کاربری خودت رو بفرست تا موجودیت رو بگم:")
             
     elif data == "back_to_login":
-        # بازگشت به صفحه لاگین برای کدهای خاص
         user_states[chat_id] = {"step": "waiting_for_login"}
         send_message(chat_id, "👋 لطفاً برای ورود به سیستم، رمز کاربری خودت رو بفرست:")
         
     elif data == "show_more_menu":
-        # نمایش منوی اضافه تر
         url = f"{BASE_URL}/sendMessage"
         payload = {
             "chat_id": chat_id,
             "text": "لطفاً یکی از گزینه‌های زیر رو انتخاب کن:",
             "reply_markup": {
                 "inline_keyboard": [
-                    # دکمه مستقیم (بدون اجرای کد در ربات، مستقیم میره آیدی)
-                    [{"text": "✍️ نظرات و پیشنهادات", "url": "https://t.me/@YourCommentID"}], # حتماً این آیدی رو عوض کن
+                    # تغییر لینک به بله (ble.ir)
+                    [{"text": "✍️ نظرات و پیشنهادات", "url": "https://ble.ir/YourCommentID"}], # آیدی نظراتت رو اینجا بنویس (بدون @)
                     
-                    # دکمه چنج کردن طوس کوین
                     [{"text": "🔄 خرید خارج از کانال", "callback_data": "outside_purchase"}],
                     
-                    # بازگشت
                     [{"text": "🔙 بازگشت به منوی اصلی", "callback_data": "back_to_main"}]
                 ]
             }
@@ -127,7 +123,6 @@ def handle_callback(chat_id, data):
         requests.post(url, json=payload)
 
     elif data == "outside_purchase":
-        # ارسال پیام چنج ارز با اسم کاربر
         if chat_id in logged_in_users:
             password = logged_in_users[chat_id]
             user_name = "کاربر"
@@ -149,7 +144,8 @@ def handle_callback(chat_id, data):
                 "text": msg,
                 "reply_markup": {
                     "inline_keyboard": [
-                        [{"text": "🔗 ارتباط با @Radis_Market", "url": "@Radis_Market"}]
+                        # تغییر لینک به بله (ble.ir)
+                        [{"text": "🔗 ارتباط با @Radis_Market", "url": "https://ble.ir/Radis_Market"}]
                     ]
                 }
             }
@@ -171,7 +167,6 @@ def handle_user(chat_id, text):
     if state and state["step"] == "waiting_for_login":
         password = text
         
-        # چک کردن کدهای خاص (ستون J)
         special_codes = get_special_codes()
         if password in special_codes:
             del user_states[chat_id] 
@@ -190,7 +185,6 @@ def handle_user(chat_id, text):
             requests.post(url, json=payload)
             return
 
-        # لاگین عادی مشتری‌ها (ستون A)
         try:
             sheet = get_sheet()
             col_passwords = sheet.col_values(1) 
@@ -298,7 +292,7 @@ def show_main_menu(chat_id):
             "inline_keyboard": [
                 [{"text": "🛒 خرید محصول", "callback_data": "order"}],
                 [{"text": "💰 استعلام اعتبار", "callback_data": "balance"}],
-                [{"text": "➕ اضافه تر", "callback_data": "show_more_menu"}] # دکمه جدید
+                [{"text": "➕ اضافه تر", "callback_data": "show_more_menu"}]
             ]
         }
     }
