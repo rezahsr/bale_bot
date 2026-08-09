@@ -149,7 +149,7 @@ def handle_callback(chat_id, data):
                 "text": msg,
                 "reply_markup": {
                     "inline_keyboard": [
-                        [{"text": "🔗 ارتباط با @Radis_Market", "url": "https://t.me/Radis_Market"}]
+                        [{"text": "🔗 ارتباط با @Radis_Market", "url": "https://web.bale.ai/@Radis_Market"}]
                     ]
                 }
             }
