@@ -179,7 +179,7 @@ def handle_callback(chat_id, data):
             msg = f"🔄 **تبدیل ارز**\n━━━━━━━━━━━━━━━\n{user_name} عزیز، شما می‌توانید طوس کوین خود را به ارز CP کالاف تبدیل کنید."
             markup = {
                 "inline_keyboard": [
-                    [{"text": "🔗 ارتباط با @Radis_Market", "url": "https://ble.ir/Radis_Market"}],
+                    [{"text": "🔗 ارتباط با مسئول خرید ارز", "url": "https://ble.ir/Radis_Market"}],
                     [{"text": "« بازگشت", "callback_data": "back_to_more"}]
                 ]
             }
