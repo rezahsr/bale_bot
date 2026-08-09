@@ -3,6 +3,7 @@ import json
 import requests
 import gspread
 from flask import Flask, request, jsonify
+from datetime import datetime # اضافه شد برای تاریخ فاکتور
 
 app = Flask(__name__)
 
@@ -13,13 +14,24 @@ ADMIN_CHAT_ID = 1262888912 # حتماً آیدی عددی خودت رو اینج
 CREDS = json.loads(os.environ.get("GOOGLE_CREDS"))
 SHEET_ID = os.environ.get("SHEET_ID")
 
+# ✨ آیدی استیکر خودت رو اینجا بذار (بدون علامت []
+SUCCESS_STICKER_ID = "AgACAgIAAxkBAAI..." 
+
 user_states = {}
 logged_in_users = {} 
 
 def get_sheet():
     gc = gspread.service_account_from_dict(CREDS)
-    sh = gc.open_by_key(SHEET_ID).sheet1
+    sh = gc.open_by_key(SHEET_ID).sheet1 # شیت اول (کاربران و کالاها)
     return sh
+
+def get_invoice_sheet():
+    gc = gspread.service_account_from_dict(CREDS)
+    sh = gc.open_by_key(SHEET_ID)
+    try:
+        return sh.get_worksheet(1) # شیت دوم (فاکتورها)
+    except:
+        return None
 
 def get_special_codes():
     sheet = get_sheet()
@@ -49,6 +61,24 @@ def get_products():
             except:
                 pass
     return products
+
+# ✨ تابع جدید: افکت تایپ کردن
+def send_typing_action(chat_id):
+    url = f"{BASE_URL}/sendChatAction"
+    payload = {"chat_id": chat_id, "action": "typing"}
+    try:
+        requests.post(url, json=payload)
+    except:
+        pass
+
+# ✨ تابع جدید: فرستادن استیکر
+def send_sticker(chat_id, file_id):
+    url = f"{BASE_URL}/sendSticker"
+    payload = {"chat_id": chat_id, "sticker": file_id}
+    try:
+        requests.post(url, json=payload)
+    except:
+        pass
 
 def delete_message(chat_id, message_id):
     url = f"{BASE_URL}/deleteMessage"
@@ -93,6 +123,10 @@ def webhook():
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
         text = data["message"].get("text", "")
+        
+        # ✨ افکت تایپ کردن وقتی کاربر متنی میفرسته (فوراً اجرا میشه قبل از خوندن شیت)
+        send_typing_action(chat_id)
+        
         handle_user(chat_id, text)
     elif "callback_query" in data:
         chat_id = data["callback_query"]["from"]["id"]
@@ -111,6 +145,7 @@ def handle_callback(chat_id, data):
     
     elif data == "balance":
         if chat_id in logged_in_users:
+            send_typing_action(chat_id) # ✨ افکت تایپ برای استعلام هم
             fetch_and_send_balance(chat_id, logged_in_users[chat_id])
         else:
             user_states[chat_id] = {"step": "waiting_for_pass_check"}
@@ -154,15 +189,12 @@ def handle_callback(chat_id, data):
 
     elif data == "back_to_main":
         show_main_menu(chat_id)
-        
     elif data == "back_to_more":
         handle_callback(chat_id, "show_more_menu")
-        
     elif data == "back_to_products":
         user_states[chat_id] = {"step": "waiting_for_products"}
         markup = {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "back_to_main"}]]}
         send_message(chat_id, "🛒 **ثبت سفارش**\n━━━━━━━━━━━━━━━\nلطفاً کد کالا را ارسال کنید.\n_(مثال: 101 یا 101 103)_\n\n📌 مشاهده کالاها: @tos_kala", markup)
-        
     elif data == "back_to_login":
         user_states[chat_id] = {"step": "waiting_for_login"}
         send_message(chat_id, "🔐 **ورود به سیستم**\n━━━━━━━━━━━━━━━\nلطفاً رمز عبور خود را ارسال کنید:")
@@ -266,6 +298,16 @@ def handle_user(chat_id, text):
                 sheet.update_cell(user_idx + 1, 2, new_balance)
                 
                 prod_names = "، ".join([p['name'] for p in selected_products])
+                
+                # ✨ فرستادن استیکر موفقیت
+                send_sticker(chat_id, SUCCESS_STICKER_ID)
+                
+                # ✨ ثبت فاکتور در شیت دوم
+                invoice_sheet = get_invoice_sheet()
+                if invoice_sheet:
+                    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    invoice_sheet.append_row([now, user_name, prod_names, total_price, new_balance])
+                
                 send_message(chat_id, f"✅ **تراکنش موفق**\n━━━━━━━━━━━━━━━\nمبلغ کسر شده: {total_price:,} طوس کوین\nموجودی جدید: {new_balance:,} طوس کوین", markup)
                 
                 admin_text = f"🛒 **خرید جدید**\n👤 {user_name}\n📦 {prod_names}\n💰 {total_price:,} طوس کوین کسر شد.\n💎 باقیمانده: {new_balance:,} طوس کوین"
