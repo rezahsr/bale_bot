@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 TOKEN = os.environ.get("TOKEN")
 BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}"
-ADMIN_CHAT_ID = 123456789 # حتماً آیدی عددی خودت رو اینجا بذار
+ADMIN_CHAT_ID = 1262888912 # حتماً آیدی عددی خودت رو اینجا بذار
 
 # اطلاعات گوگل شیت از تنظیمات رندر خونده میشه
 CREDS = json.loads(os.environ.get("GOOGLE_CREDS"))
