@@ -2,7 +2,6 @@ import os
 import json
 import requests
 import gspread
-import re 
 from flask import Flask, request, jsonify
 from datetime import datetime 
 
@@ -15,7 +14,7 @@ ADMIN_CHAT_ID = 1262888912 # حتماً آیدی عددی خودت رو اینج
 CREDS = json.loads(os.environ.get("GOOGLE_CREDS"))
 SHEET_ID = os.environ.get("SHEET_ID")
 
-# ✨ آیدی استیکر خودت رو اینجا بذار
+# ✨ آیدی استیکر
 SUCCESS_STICKER_ID = "CAACAgUAAxkBAAMFZmuCVTGnOOJgu5Yw_y-UG4TK4yl4AAtkSAAJn_0FLYrrMKpPVrsNIy4E" 
 
 user_states = {}
@@ -30,7 +29,17 @@ def get_invoice_sheet():
     gc = gspread.service_account_from_dict(CREDS)
     sh = gc.open_by_key(SHEET_ID)
     try:
-        return sh.get_worksheet(1) 
+        return sh.get_worksheet(1) # شیت دوم (فاکتورها)
+    except:
+        return None
+
+# ✨ تابع جدید: پیدا کردن شیت کسریات
+def get_deduction_sheet():
+    gc = gspread.service_account_from_dict(CREDS)
+    sh = gc.open_by_key(SHEET_ID)
+    try:
+        # فرض میکنیم اسم شیت سوم رو گذاشتی "کسریات"
+        return sh.worksheet("کسریات") 
     except:
         return None
 
@@ -108,7 +117,6 @@ def fetch_and_send_balance(chat_id, password):
                 user_idx = i
                 break
         if user_idx != -1:
-            # ✨ ایمن‌سازی: تبدیل اعشاری به صحیح
             balance = int(float(col_balances[user_idx]))
             markup = {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "back_to_main"}]]}
             send_message(chat_id, f"━━━━━━━━━━━━━━━\n💰 **موجودی حساب شما:**\n🔸 {balance:,} طوس کوین\n━━━━━━━━━━━━━━━", markup)
@@ -287,34 +295,39 @@ def handle_user(chat_id, text):
                 send_message(chat_id, "❌ رمز اشتباه بود. سفارش لغو شد.", markup)
                 return
                 
-            # ✨ ایمن‌سازی: تبدیل اعشاری به صحیح (حل مشکل PI و سایر فرمول ها)
             balance = int(float(col_balances[user_idx]))
             user_name = col_names[user_idx].strip() 
             
             if balance >= total_price:
                 new_balance = balance - total_price
                 
-                # ✨ بخش تغییر فرمول
-                cell_address = f"B{user_idx + 1}"
-                formula_data = sheet.batch_get([cell_address], value_render_option="FORMULA")
-                current_formula = formula_data[0][0] if formula_data and formula_data[0] else "=P11"
-                
-                match = re.match(r'=(.*)-(\d+)$', current_formula)
-                if match:
-                    base_ref = match.group(1).strip()
-                    current_deduction = int(match.group(2))
-                else:
-                    base_ref = current_formula.replace("=", "").strip()
-                    current_deduction = 0
-                
-                new_deduction = current_deduction + total_price
-                new_formula = f"={base_ref}-{new_deduction}"
-                sheet.update(cell_address, new_formula, value_input_option="USER_ENTERED")
+                # ✨✨✨ بخش جادویی جدید: ثبت در شیت کسریات ✨✨✨
+                ded_sheet = get_deduction_sheet()
+                if ded_sheet:
+                    # خوندن ردیف اول (تیترها) برای پیدا کردن ستون این شخص
+                    headers = ded_sheet.row_values(1)
+                    target_col_idx = -1
+                    
+                    for i, header in enumerate(headers):
+                        if str(header).strip() == password:
+                            target_col_idx = i + 1 # گوگل شیت از 1 میشماره
+                            break
+                    
+                    # اگر ستون شخص رو پیدا کرد
+                    if target_col_idx != -1:
+                        # پیدا کردن اولین سلول خالی در پایین ستونش
+                        col_values = ded_sheet.col_values(target_col_idx)
+                        next_empty_row = len(col_values) + 1
+                        
+                        # نوشتن مبلغ خرید
+                        ded_sheet.update_cell(next_empty_row, target_col_idx, total_price)
+                # ✨✨✨ پایان بخش جادویی ✨✨✨
                 
                 prod_names = "، ".join([p['name'] for p in selected_products])
                 
                 send_sticker(chat_id, SUCCESS_STICKER_ID)
                 
+                # ثبت فاکتور
                 invoice_sheet = get_invoice_sheet()
                 if invoice_sheet:
                     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -326,7 +339,8 @@ def handle_user(chat_id, text):
                 send_message(ADMIN_CHAT_ID, admin_text)
             else:
                 send_message(chat_id, f"❌ **موجودی ناکافی**\n━━━━━━━━━━━━━━━\nموجودی شما: {balance:,} طوس کوین\nمبلغ خرید: {total_price:,} طوس کوین", markup)
-        except:
+        except Exception as e:
+            print(f"Sheet Error Buy: {e}")
             send_message(chat_id, "⚠️ خطا در پردازش سفارش.")
 
     elif state and state["step"] == "waiting_for_pass_check":
