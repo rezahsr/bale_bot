@@ -2,7 +2,7 @@ import os
 import json
 import requests
 import gspread
-import re # این لایبرری جدید اضافه شد برای خواندن فرمول
+import re 
 from flask import Flask, request, jsonify
 from datetime import datetime 
 
@@ -16,7 +16,7 @@ CREDS = json.loads(os.environ.get("GOOGLE_CREDS"))
 SHEET_ID = os.environ.get("SHEET_ID")
 
 # ✨ آیدی استیکر خودت رو اینجا بذار
-SUCCESS_STICKER_ID = "AgACAgIAAxkBAAI..." 
+SUCCESS_STICKER_ID = "CAACAgUAAxkBAAMFZmuCVTGnOOJgu5Yw_y-UG4TK4yl4AAtkSAAJn_0FLYrrMKpPVrsNIy4E" 
 
 user_states = {}
 logged_in_users = {} 
@@ -108,7 +108,8 @@ def fetch_and_send_balance(chat_id, password):
                 user_idx = i
                 break
         if user_idx != -1:
-            balance = int(col_balances[user_idx])
+            # ✨ ایمن‌سازی: تبدیل اعشاری به صحیح
+            balance = int(float(col_balances[user_idx]))
             markup = {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "back_to_main"}]]}
             send_message(chat_id, f"━━━━━━━━━━━━━━━\n💰 **موجودی حساب شما:**\n🔸 {balance:,} طوس کوین\n━━━━━━━━━━━━━━━", markup)
         else:
@@ -286,44 +287,34 @@ def handle_user(chat_id, text):
                 send_message(chat_id, "❌ رمز اشتباه بود. سفارش لغو شد.", markup)
                 return
                 
-            balance = int(col_balances[user_idx])
+            # ✨ ایمن‌سازی: تبدیل اعشاری به صحیح (حل مشکل PI و سایر فرمول ها)
+            balance = int(float(col_balances[user_idx]))
             user_name = col_names[user_idx].strip() 
             
             if balance >= total_price:
                 new_balance = balance - total_price
                 
-                # ✨✨✨ بخش جادویی تغییر فرمول ✨✨✨
+                # ✨ بخش تغییر فرمول
                 cell_address = f"B{user_idx + 1}"
-                
-                # 1. خواندن فرمول فعلی سلول
                 formula_data = sheet.batch_get([cell_address], value_render_option="FORMULA")
                 current_formula = formula_data[0][0] if formula_data and formula_data[0] else "=P11"
                 
-                # 2. پیدا کردن عددی که از قبل کم شده (اگه فرمول باشه)
                 match = re.match(r'=(.*)-(\d+)$', current_formula)
                 if match:
                     base_ref = match.group(1).strip()
                     current_deduction = int(match.group(2))
                 else:
-                    # اگه فرمول نبود و فقط تابع بود (مثل =P11)
                     base_ref = current_formula.replace("=", "").strip()
                     current_deduction = 0
                 
-                # 3. اضافه کردن خرید جدید به کسر شده‌ها
                 new_deduction = current_deduction + total_price
-                
-                # 4. ساختن فرمول نهایی
                 new_formula = f"={base_ref}-{new_deduction}"
-                
-                # 5. جایگزینی فرمول تو شیت (value_input_option باعث میشه گوگل شیت اون رو به عنوان فرمول بشناسه نه متن ساده)
                 sheet.update(cell_address, new_formula, value_input_option="USER_ENTERED")
-                # ✨✨✨ پایان بخش جادویی ✨✨✨
                 
                 prod_names = "، ".join([p['name'] for p in selected_products])
                 
                 send_sticker(chat_id, SUCCESS_STICKER_ID)
                 
-                # ثبت فاکتور
                 invoice_sheet = get_invoice_sheet()
                 if invoice_sheet:
                     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
