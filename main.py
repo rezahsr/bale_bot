@@ -2,8 +2,9 @@ import os
 import json
 import requests
 import gspread
+import re # این لایبرری جدید اضافه شد برای خواندن فرمول
 from flask import Flask, request, jsonify
-from datetime import datetime # اضافه شد برای تاریخ فاکتور
+from datetime import datetime 
 
 app = Flask(__name__)
 
@@ -14,7 +15,7 @@ ADMIN_CHAT_ID = 1262888912 # حتماً آیدی عددی خودت رو اینج
 CREDS = json.loads(os.environ.get("GOOGLE_CREDS"))
 SHEET_ID = os.environ.get("SHEET_ID")
 
-# ✨ آیدی استیکر خودت رو اینجا بذار (بدون علامت []
+# ✨ آیدی استیکر خودت رو اینجا بذار
 SUCCESS_STICKER_ID = "AgACAgIAAxkBAAI..." 
 
 user_states = {}
@@ -22,14 +23,14 @@ logged_in_users = {}
 
 def get_sheet():
     gc = gspread.service_account_from_dict(CREDS)
-    sh = gc.open_by_key(SHEET_ID).sheet1 # شیت اول (کاربران و کالاها)
+    sh = gc.open_by_key(SHEET_ID).sheet1 
     return sh
 
 def get_invoice_sheet():
     gc = gspread.service_account_from_dict(CREDS)
     sh = gc.open_by_key(SHEET_ID)
     try:
-        return sh.get_worksheet(1) # شیت دوم (فاکتورها)
+        return sh.get_worksheet(1) 
     except:
         return None
 
@@ -62,7 +63,6 @@ def get_products():
                 pass
     return products
 
-# ✨ تابع جدید: افکت تایپ کردن
 def send_typing_action(chat_id):
     url = f"{BASE_URL}/sendChatAction"
     payload = {"chat_id": chat_id, "action": "typing"}
@@ -71,7 +71,6 @@ def send_typing_action(chat_id):
     except:
         pass
 
-# ✨ تابع جدید: فرستادن استیکر
 def send_sticker(chat_id, file_id):
     url = f"{BASE_URL}/sendSticker"
     payload = {"chat_id": chat_id, "sticker": file_id}
@@ -123,10 +122,7 @@ def webhook():
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
         text = data["message"].get("text", "")
-        
-        # ✨ افکت تایپ کردن وقتی کاربر متنی میفرسته (فوراً اجرا میشه قبل از خوندن شیت)
         send_typing_action(chat_id)
-        
         handle_user(chat_id, text)
     elif "callback_query" in data:
         chat_id = data["callback_query"]["from"]["id"]
@@ -145,7 +141,7 @@ def handle_callback(chat_id, data):
     
     elif data == "balance":
         if chat_id in logged_in_users:
-            send_typing_action(chat_id) # ✨ افکت تایپ برای استعلام هم
+            send_typing_action(chat_id)
             fetch_and_send_balance(chat_id, logged_in_users[chat_id])
         else:
             user_states[chat_id] = {"step": "waiting_for_pass_check"}
@@ -179,7 +175,7 @@ def handle_callback(chat_id, data):
             msg = f"🔄 **تبدیل ارز**\n━━━━━━━━━━━━━━━\n{user_name} عزیز، شما می‌توانید طوس کوین خود را به ارز CP کالاف تبدیل کنید."
             markup = {
                 "inline_keyboard": [
-                    [{"text": "🔗 ارتباط با مسئول خرید ارز", "url": "https://ble.ir/Radis_Market"}],
+                    [{"text": "🔗 ارتباط با @Radis_Market", "url": "https://ble.ir/Radis_Market"}],
                     [{"text": "« بازگشت", "callback_data": "back_to_more"}]
                 ]
             }
@@ -295,14 +291,39 @@ def handle_user(chat_id, text):
             
             if balance >= total_price:
                 new_balance = balance - total_price
-                sheet.update_cell(user_idx + 1, 2, new_balance)
+                
+                # ✨✨✨ بخش جادویی تغییر فرمول ✨✨✨
+                cell_address = f"B{user_idx + 1}"
+                
+                # 1. خواندن فرمول فعلی سلول
+                formula_data = sheet.batch_get([cell_address], value_render_option="FORMULA")
+                current_formula = formula_data[0][0] if formula_data and formula_data[0] else "=P11"
+                
+                # 2. پیدا کردن عددی که از قبل کم شده (اگه فرمول باشه)
+                match = re.match(r'=(.*)-(\d+)$', current_formula)
+                if match:
+                    base_ref = match.group(1).strip()
+                    current_deduction = int(match.group(2))
+                else:
+                    # اگه فرمول نبود و فقط تابع بود (مثل =P11)
+                    base_ref = current_formula.replace("=", "").strip()
+                    current_deduction = 0
+                
+                # 3. اضافه کردن خرید جدید به کسر شده‌ها
+                new_deduction = current_deduction + total_price
+                
+                # 4. ساختن فرمول نهایی
+                new_formula = f"={base_ref}-{new_deduction}"
+                
+                # 5. جایگزینی فرمول تو شیت (value_input_option باعث میشه گوگل شیت اون رو به عنوان فرمول بشناسه نه متن ساده)
+                sheet.update(cell_address, new_formula, value_input_option="USER_ENTERED")
+                # ✨✨✨ پایان بخش جادویی ✨✨✨
                 
                 prod_names = "، ".join([p['name'] for p in selected_products])
                 
-                # ✨ فرستادن استیکر موفقیت
                 send_sticker(chat_id, SUCCESS_STICKER_ID)
                 
-                # ✨ ثبت فاکتور در شیت دوم
+                # ثبت فاکتور
                 invoice_sheet = get_invoice_sheet()
                 if invoice_sheet:
                     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
