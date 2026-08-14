@@ -14,13 +14,11 @@ ADMIN_CHAT_ID = 123456789
 CREDS = json.loads(os.environ.get("GOOGLE_CREDS"))
 SHEET_ID = os.environ.get("SHEET_ID")
 
-# استیکر پیش‌فرض (اگر استیکری تو شیت تنظیم نشده باشه این فرسته میشه)
 DEFAULT_STICKER = "CAACAgUAAxkBAAMFZmuCVTGnOOJgu5Yw_y-UG4TK4yl4AAtkSAAJn_0FLYrrMKpPVrsNIy4E" 
 
 user_states = {}
 logged_in_users = {} 
 
-# ✨ تابع جادویی تبدیل اعداد فارسی/عربی به انگلیسی
 def to_english_numbers(text):
     persian = '۰۱۲۳۴۵۶۷۸۹'
     arabic = '٠١٢٣٤٥٦٧٨٩'
@@ -169,32 +167,39 @@ def handle_callback(chat_id, data):
         user_states[chat_id] = {"step": "adm_deduct_pass"}
         send_message(chat_id, "لطفا کد کاربری (رمز عبور) عضو را وارد کنید:", {"inline_keyboard": [back_btn]})
 
-    # ✨ بخش مدیریت مقاصد (آیدی های عددی)
+    # ✨ تنظیمات مقاصد (ستون U و V)
     elif data == "adm_ser_targets_menu":
-        sheet = get_sheet(); ids = sheet.col_values(16) # ستون P
-        current_ids = "\n".join([f"• `{i.strip()}`" for i in ids if i.strip()])
-        msg = f"📨 **مدیریت مقاصد سفارشات**\n━━━━━━━━━━━━━━━\nآیدی‌های فعلی (ستون P شیت):\n{current_ids if current_ids else 'خالی'}\n\n_توجه: شناسه عددی را بدون @ ارسال کنید._\n_راهنمای پیدا کردن آیدی عددی: وارد پی‌وی شخص شوید و روی نام اون کلیک راست کنید، شناسه عددی نوشته شده را کپی کنید._"
+        sheet = get_sheet()
+        ids = sheet.col_values(22) # ستون V
+        names = sheet.col_values(21) # ستون U
+        current_targets = ""
+        for i in range(1, len(ids)):
+            if ids[i].strip():
+                name = names[i].strip() if i < len(names) and names[i].strip() else "بدون نام"
+                current_targets += f"• {name} (آیدی: `{ids[i].strip()}`)\n"
+        
+        msg = f"📨 **مدیریت مقاصد سفارشات**\n━━━━━━━━━━━━━━━\nمقاصد فعلی:\n{current_targets if current_targets else 'خالی'}\n\n_آیدی عددی را بدون @ ارسال کنید._\n_راهنما: وارد پی‌وی شخص شوید و روی نام اون کلیک راست کنید._"
         markup = {"inline_keyboard": [[{"text": "➕ افزودن آیدی", "callback_data": "adm_ser_add_target"}], [{"text": "➖ حذف آیدی", "callback_data": "adm_ser_del_target"}], [{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]}
         send_message(chat_id, msg, markup)
 
     elif data == "adm_ser_add_target":
         user_states[chat_id] = {"step": "adm_add_target"}
-        send_message(chat_id, "لطفاً شناسه عددی جدید را ارسال کنید:", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
+        send_message(chat_id, "لطفاً شناسه عددی جدید را ارسال کنید (توی ستون V ثبت میشود، اسمش رو خودت دستی توی U بنویس):", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
 
     elif data == "adm_ser_del_target":
-        sheet = get_sheet(); ids = sheet.col_values(16)
+        sheet = get_sheet(); ids = sheet.col_values(22)
         if not any(i.strip() for i in ids): return send_message(chat_id, "❌ هیچ آیدی‌ای ثبت نشده است.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
-        text_list = "📋 **لیست آیدی‌ها:**\n━━━━━━━━━━━━━━━\n"
+        text_list = "📋 **لیست آیدی‌ها (ستون V):**\n━━━━━━━━━━━━━━━\n"
         for i, ID in enumerate(ids):
             if ID.strip(): text_list += f"{i+1}_ {ID.strip()}\n"
         text_list += "\n⚠️ عدد کنار آیدی را برای حذف ارسال کنید:"
         user_states[chat_id] = {"step": "adm_del_target", "max_idx": len(ids)}
         send_message(chat_id, text_list, {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
 
-    # ✨ بخش تنظیم استیکر
+    # ✨ تنظیمات استیکر (سلول T1)
     elif data == "adm_ser_sticker_menu":
-        sheet = get_sheet(); current_sticker = sheet.acell('P10').value or "ندارد"
-        send_message(chat_id, f"🖼 **استیکر موفقیت**\n━━━━━━━━━━━━━━━\nاستیکر فعلی (P10):\n`{current_sticker}`\n\nلطفاً آیدی استیکر جدید را ارسال کنید:", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
+        sheet = get_sheet(); current_sticker = sheet.acell('T1').value or "ندارد"
+        send_message(chat_id, f"🖼 **استیکر موفقیت**\n━━━━━━━━━━━━━━━\nاستیکر فعلی (T1):\n`{current_sticker}`\n\nلطفاً آیدی استیکر جدید را ارسال کنید:", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
         user_states[chat_id] = {"step": "adm_set_sticker"}
 
     elif data == "adm_adm_menu":
@@ -252,7 +257,7 @@ def handle_callback(chat_id, data):
     elif data == "back_to_more": handle_callback(chat_id, "show_more_menu")
     elif data == "back_to_products": user_states[chat_id] = {"step": "waiting_for_products"}; send_message(chat_id, "🛒 لطفاً کد کالا را ارسال کنید:")
     elif data == "back_to_login": user_states[chat_id] = {"step": "waiting_for_login"}; send_message(chat_id, "🔐 لطفاً رمز عبور خود را ارسال کنید:")
-    elif data == "adm_none": pass # دکمه غیرفعال
+    elif data == "adm_none": pass
 
     elif data == "order":
         user_states[chat_id] = {"step": "waiting_for_products"}
@@ -281,7 +286,7 @@ def handle_callback(chat_id, data):
         else: send_message(chat_id, "❌ لطفاً ابتدا وارد حساب خود شوید.")
 
 def handle_user(chat_id, text):
-    text = to_english_numbers(text.strip()) # ✨ تبدیل اعداد در همان لحظه اول
+    text = to_english_numbers(text.strip())
     state = user_states.get(chat_id)
 
     if text == "/start":
@@ -350,11 +355,11 @@ def handle_user(chat_id, text):
             try:
                 sheet = get_sheet()
                 empty_row = get_first_empty_row(sheet)
-                sheet.update_cell(empty_row, 1, state["pass"])
-                sheet.update_cell(empty_row, 2, "=P11")
-                sheet.update_cell(empty_row, 3, state["short_name"])
-                sheet.update_cell(empty_row, 4, state["full_name"])
-                try: sheet.update('O9', state["pass"]) # ✨ رفع ارور: اگه مشکل داشت بی‌خیال کن
+                sheet.update_cell(empty_row, 1, state["pass"]) # A
+                # ✨ ستون B دست نخورده تا فرمول خودت کار کنه
+                sheet.update_cell(empty_row, 3, state["short_name"]) # C
+                sheet.update_cell(empty_row, 4, state["full_name"])  # D
+                try: sheet.update('O9', state["pass"])
                 except: pass
                 del user_states[chat_id]
                 send_message(chat_id, "✅ کاربر با موفقیت اضافه شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_mem_menu"}]]})
@@ -403,22 +408,21 @@ def handle_user(chat_id, text):
             send_message(chat_id, f"✅ با موفقیت {amount:,} طوس کوین از حساب کاربر کسر شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
         except: send_message(chat_id, "❌ لطفا یک عدد صحیح ارسال کنید.")
 
-    # ✨ State های جدید ادمین
     elif state and state["step"] == "adm_add_target":
         try:
             target_id = int(text.strip())
             sheet = get_sheet()
-            empty_row = get_first_empty_row(sheet, col=16)
-            sheet.update_cell(empty_row, 16, target_id)
+            empty_row = get_first_empty_row(sheet, col=22) # ستون V
+            sheet.update_cell(empty_row, 22, target_id)
             del user_states[chat_id]
-            send_message(chat_id, "✅ آیدی با موفقیت اضافه شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
+            send_message(chat_id, "✅ آیدی با موفقیت در ستون V ثبت شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
         except: send_message(chat_id, "❌ آیدی باید یک عدد صحیح باشد.")
 
     elif state and state["step"] == "adm_del_target":
         try:
             idx = int(text.strip())
             if 1 <= idx <= state["max_idx"]:
-                sheet = get_sheet(); sheet.update_cell(idx, 16, "")
+                sheet = get_sheet(); sheet.update_cell(idx, 22, "") # پاک کردن ستون V
                 del user_states[chat_id]
                 send_message(chat_id, "✅ آیدی با موفقیت حذف شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
             else: send_message(chat_id, "❌ عدد نامعتبر است.")
@@ -426,9 +430,9 @@ def handle_user(chat_id, text):
 
     elif state and state["step"] == "adm_set_sticker":
         sticker_id = text.strip()
-        sheet = get_sheet(); sheet.update('P10', sticker_id)
+        sheet = get_sheet(); sheet.update('T1', sticker_id) # ✨ انتقال به T1
         del user_states[chat_id]
-        send_message(chat_id, "✅ استیکر موفقیت با موفقیت تغییر کرد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
+        send_message(chat_id, "✅ استیکر موفقیت در T1 ذخیره شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
 
     elif state and state["step"] == "adm_add_adm_fullname":
         user_states[chat_id] = {"step": "adm_add_adm_pass", "fullname": text}
@@ -560,9 +564,9 @@ def handle_user(chat_id, text):
                         col_values = ded_sheet.col_values(target_col_idx)
                         ded_sheet.update_cell(len(col_values) + 1, target_col_idx, total_price)
                 
-                # ✨ خواندن استیکر و آیدی های هدف از شیت
-                custom_sticker = sheet.acell('P10').value
-                targets = [t.strip() for t in sheet.col_values(16) if t.strip()]
+                # ✨ خواندن استیکر از T1 و آیدی ها از ستون V
+                custom_sticker = sheet.acell('T1').value
+                targets = [t.strip() for t in sheet.col_values(22) if t.strip()] # ستون V
                 
                 prod_names = "، ".join([p['name'] for p in selected_products])
                 
@@ -575,9 +579,8 @@ def handle_user(chat_id, text):
                 send_message(chat_id, f"✅ **تراکنش موفق**\n━━━━━━━━━━━━━━━\nمبلغ کسر شده: {total_price:,} طوس کوین\nموجودی جدید: {new_balance:,} طوس کوین", markup)
                 
                 admin_text = f"🛒 **خرید جدید**\n👤 {user_name}\n📦 {prod_names}\n💰 {total_price:,} طوس کوین کسر شد."
-                send_message(ADMIN_CHAT_ID, admin_text)
                 
-                # ✨ ارسال به آیدی های هدف
+                # ✨ ارسال به آیدی‌های ثبت شده در ستون V
                 for t in targets:
                     try: send_message(int(t), admin_text)
                     except: pass
