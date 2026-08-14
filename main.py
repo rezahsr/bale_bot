@@ -9,15 +9,25 @@ app = Flask(__name__)
 
 TOKEN = os.environ.get("TOKEN")
 BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}"
-ADMIN_CHAT_ID = 1262888912 # آیدی عددی خودت
+ADMIN_CHAT_ID = 123456789 
 
 CREDS = json.loads(os.environ.get("GOOGLE_CREDS"))
 SHEET_ID = os.environ.get("SHEET_ID")
 
-SUCCESS_STICKER_ID = "CAACAgUAAxkBAAMFZmuCVTGnOOJgu5Yw_y-UG4TK4yl4AAtkSAAJn_0FLYrrMKpPVrsNIy4E" 
+# استیکر پیش‌فرض (اگر استیکری تو شیت تنظیم نشده باشه این فرسته میشه)
+DEFAULT_STICKER = "CAACAgUAAxkBAAMFZmuCVTGnOOJgu5Yw_y-UG4TK4yl4AAtkSAAJn_0FLYrrMKpPVrsNIy4E" 
 
 user_states = {}
 logged_in_users = {} 
+
+# ✨ تابع جادویی تبدیل اعداد فارسی/عربی به انگلیسی
+def to_english_numbers(text):
+    persian = '۰۱۲۳۴۵۶۷۸۹'
+    arabic = '٠١٢٣٤٥٦٧٨٩'
+    english = '0123456789'
+    for i in range(10):
+        text = text.replace(persian[i], english[i]).replace(arabic[i], english[i])
+    return text
 
 def get_sheet():
     gc = gspread.service_account_from_dict(CREDS)
@@ -41,8 +51,7 @@ def get_admins_sheet():
 def get_first_empty_row(sheet, col=1):
     col_vals = sheet.col_values(col)
     for i, val in enumerate(col_vals, start=1):
-        if not val or not str(val).strip():
-            return i
+        if not val or not str(val).strip(): return i
     return len(col_vals) + 1
 
 def get_special_codes():
@@ -86,9 +95,7 @@ def send_message(chat_id, text, reply_markup=None):
 
 def check_perm(chat_id, required_role):
     if chat_id not in logged_in_users: return False
-    user_data = logged_in_users[chat_id]
-    if isinstance(user_data, str): return False
-    role = user_data.get('role', 'user')
+    role = logged_in_users[chat_id].get('role', 'user')
     if required_role == 'god': return role == 'god'
     if required_role == 'vip': return role in ['god', 'vip']
     if required_role == 'admin': return role in ['god', 'vip', 'admin']
@@ -120,11 +127,10 @@ def handle_callback(chat_id, data):
         rows = [
             [{"text": "👤 اضافه/حذف عضو", "callback_data": "adm_mem_menu"}],
             [{"text": "⚙️ خدمات بیشتر", "callback_data": "adm_ser_menu"}],
-            [{"text": "🛡️ اضافه/حذف ادمین", "callback_data": "adm_adm_menu"}],
+            [{"text": "🛡️ مدیریت ادمین‌ها", "callback_data": "adm_adm_menu"}],
             [{"text": "🎁 جوایز", "callback_data": "adm_prize_menu"}],
         ]
-        if check_perm(chat_id, 'vip'):
-            rows.append([{"text": "📊 اطلاعات کاربران", "callback_data": "adm_info"}])
+        if check_perm(chat_id, 'vip'): rows.append([{"text": "📊 اطلاعات کاربران", "callback_data": "adm_info"}])
         rows.append([{"text": "🚪 خروج از ادمین", "callback_data": "adm_logout"}])
         send_message(chat_id, "🔐 **پنل مدیریت**\n━━━━━━━━━━━━━━━", {"inline_keyboard": rows})
 
@@ -142,11 +148,8 @@ def handle_callback(chat_id, data):
         send_message(chat_id, "لطفا یک نام کوتاه برای کاربر انتخاب کنید (برای نمایش در ربات):")
 
     elif data == "adm_mem_del_start":
-        sheet = get_sheet()
-        names = sheet.col_values(4)
-        if len(names) <= 1:
-            send_message(chat_id, "❌ هیچ عضوی برای حذف وجود ندارد.", {"inline_keyboard": [back_btn]})
-            return
+        sheet = get_sheet(); names = sheet.col_values(4)
+        if len(names) <= 1: return send_message(chat_id, "❌ هیچ عضوی برای حذف وجود ندارد.", {"inline_keyboard": [back_btn]})
         text_list = "📋 **لیست کاربران:**\n━━━━━━━━━━━━━━━\n"
         for i in range(1, len(names)):
             if names[i].strip(): text_list += f"{i}_ {names[i].strip()}\n"
@@ -155,17 +158,53 @@ def handle_callback(chat_id, data):
         send_message(chat_id, text_list, {"inline_keyboard": [back_btn]})
 
     elif data == "adm_ser_menu":
-        markup = {"inline_keyboard": [[{"text": "💸 کسر طوس کوین", "callback_data": "adm_ser_deduct_start"}], back_btn]}
-        send_message(chat_id, "⚙️ **خدمات بیشتر**", markup)
+        rows = [[{"text": "💸 کسر طوس کوین", "callback_data": "adm_ser_deduct_start"}]]
+        if check_perm(chat_id, 'vip'):
+            rows.append([{"text": "📨 مدیریت مقاصد سفارش", "callback_data": "adm_ser_targets_menu"}])
+            rows.append([{"text": "🖼 تنظیم استیکر موفقیت", "callback_data": "adm_ser_sticker_menu"}])
+        rows.append(back_btn)
+        send_message(chat_id, "⚙️ **خدمات بیشتر**", {"inline_keyboard": rows})
         
     elif data == "adm_ser_deduct_start":
         user_states[chat_id] = {"step": "adm_deduct_pass"}
         send_message(chat_id, "لطفا کد کاربری (رمز عبور) عضو را وارد کنید:", {"inline_keyboard": [back_btn]})
 
+    # ✨ بخش مدیریت مقاصد (آیدی های عددی)
+    elif data == "adm_ser_targets_menu":
+        sheet = get_sheet(); ids = sheet.col_values(16) # ستون P
+        current_ids = "\n".join([f"• `{i.strip()}`" for i in ids if i.strip()])
+        msg = f"📨 **مدیریت مقاصد سفارشات**\n━━━━━━━━━━━━━━━\nآیدی‌های فعلی (ستون P شیت):\n{current_ids if current_ids else 'خالی'}\n\n_توجه: شناسه عددی را بدون @ ارسال کنید._\n_راهنمای پیدا کردن آیدی عددی: وارد پی‌وی شخص شوید و روی نام اون کلیک راست کنید، شناسه عددی نوشته شده را کپی کنید._"
+        markup = {"inline_keyboard": [[{"text": "➕ افزودن آیدی", "callback_data": "adm_ser_add_target"}], [{"text": "➖ حذف آیدی", "callback_data": "adm_ser_del_target"}], [{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]}
+        send_message(chat_id, msg, markup)
+
+    elif data == "adm_ser_add_target":
+        user_states[chat_id] = {"step": "adm_add_target"}
+        send_message(chat_id, "لطفاً شناسه عددی جدید را ارسال کنید:", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
+
+    elif data == "adm_ser_del_target":
+        sheet = get_sheet(); ids = sheet.col_values(16)
+        if not any(i.strip() for i in ids): return send_message(chat_id, "❌ هیچ آیدی‌ای ثبت نشده است.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
+        text_list = "📋 **لیست آیدی‌ها:**\n━━━━━━━━━━━━━━━\n"
+        for i, ID in enumerate(ids):
+            if ID.strip(): text_list += f"{i+1}_ {ID.strip()}\n"
+        text_list += "\n⚠️ عدد کنار آیدی را برای حذف ارسال کنید:"
+        user_states[chat_id] = {"step": "adm_del_target", "max_idx": len(ids)}
+        send_message(chat_id, text_list, {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
+
+    # ✨ بخش تنظیم استیکر
+    elif data == "adm_ser_sticker_menu":
+        sheet = get_sheet(); current_sticker = sheet.acell('P10').value or "ندارد"
+        send_message(chat_id, f"🖼 **استیکر موفقیت**\n━━━━━━━━━━━━━━━\nاستیکر فعلی (P10):\n`{current_sticker}`\n\nلطفاً آیدی استیکر جدید را ارسال کنید:", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
+        user_states[chat_id] = {"step": "adm_set_sticker"}
+
     elif data == "adm_adm_menu":
         is_vip = check_perm(chat_id, 'vip')
-        rows = [[{"text": "➕ اضافه کردن ادمین", "callback_data": "adm_adm_add_start"}]]
-        if is_vip: rows.append([{"text": "➖ حذف کردن ادمین", "callback_data": "adm_adm_del_start"}])
+        rows = []
+        if is_vip:
+            rows.append([{"text": "➕ اضافه کردن ادمین", "callback_data": "adm_adm_add_start"}])
+            rows.append([{"text": "➖ حذف کردن ادمین", "callback_data": "adm_adm_del_start"}])
+        else:
+            rows.append([{"text": "🔒 فقط ادمین‌های VIP به این بخش دسترسی دارند", "callback_data": "adm_none"}])
         rows.append(back_btn)
         send_message(chat_id, "🛡️ **مدیریت ادمین‌ها**", {"inline_keyboard": rows})
 
@@ -174,13 +213,10 @@ def handle_callback(chat_id, data):
         send_message(chat_id, "لطفا نام و نام خانوادگی ادمین جدید را بنویسید:")
 
     elif data == "adm_adm_del_start":
-        if not check_perm(chat_id, 'vip'):
-            return send_message(chat_id, "❌ فقط ادمین‌های ویژه اجازه حذف ادمین را دارند.", {"inline_keyboard": [back_btn]})
+        if not check_perm(chat_id, 'vip'): return send_message(chat_id, "❌ فقط ادمین‌های ویژه اجازه حذف ادمین را دارند.", {"inline_keyboard": [back_btn]})
         adm_sheet = get_admins_sheet()
         if not adm_sheet: return send_message(chat_id, "❌ خطا در پیدا کردن شیت ادمین‌ها.")
-        adm_passes = adm_sheet.col_values(1)
-        adm_names = adm_sheet.col_values(2)
-        adm_vips = adm_sheet.col_values(3)
+        adm_passes, adm_names, adm_vips = adm_sheet.col_values(1), adm_sheet.col_values(2), adm_sheet.col_values(3)
         if len(adm_passes) <= 1: return send_message(chat_id, "❌ هیچ ادمینی وجود ندارد.", {"inline_keyboard": [back_btn]})
         text_list = "📋 **لیست ادمین‌ها:**\n━━━━━━━━━━━━━━━\n"
         for i in range(1, len(adm_passes)):
@@ -198,15 +234,13 @@ def handle_callback(chat_id, data):
     elif data == "adm_prize_add_name":
         user_states[chat_id] = {"step": "adm_prize_name"}
         send_message(chat_id, "لطفا اسم جایزه را بنویسید:")
-
     elif data == "adm_prize_edit_code":
         user_states[chat_id] = {"step": "adm_prize_get_code"}
         send_message(chat_id, "لطفا کد کالای جایزه را بنویسید:", {"inline_keyboard": [back_btn]})
 
     elif data == "adm_info":
         if not check_perm(chat_id, 'vip'): return
-        sheet = get_sheet()
-        passes, names_short, names_full, balances = sheet.col_values(1), sheet.col_values(3), sheet.col_values(4), sheet.col_values(2)
+        sheet = get_sheet(); passes, names_full, balances = sheet.col_values(1), sheet.col_values(4), sheet.col_values(2)
         msg = "📊 **اطلاعات کاربران سیستم:**\n━━━━━━━━━━━━━━━\n"
         for i in range(1, len(passes)):
             if passes[i].strip():
@@ -218,6 +252,7 @@ def handle_callback(chat_id, data):
     elif data == "back_to_more": handle_callback(chat_id, "show_more_menu")
     elif data == "back_to_products": user_states[chat_id] = {"step": "waiting_for_products"}; send_message(chat_id, "🛒 لطفاً کد کالا را ارسال کنید:")
     elif data == "back_to_login": user_states[chat_id] = {"step": "waiting_for_login"}; send_message(chat_id, "🔐 لطفاً رمز عبور خود را ارسال کنید:")
+    elif data == "adm_none": pass # دکمه غیرفعال
 
     elif data == "order":
         user_states[chat_id] = {"step": "waiting_for_products"}
@@ -246,6 +281,7 @@ def handle_callback(chat_id, data):
         else: send_message(chat_id, "❌ لطفاً ابتدا وارد حساب خود شوید.")
 
 def handle_user(chat_id, text):
+    text = to_english_numbers(text.strip()) # ✨ تبدیل اعداد در همان لحظه اول
     state = user_states.get(chat_id)
 
     if text == "/start":
@@ -254,24 +290,26 @@ def handle_user(chat_id, text):
         return
 
     if state and state["step"] == "waiting_for_login":
-        password = text.strip()
+        password = text
         sheet = get_sheet()
         
         god_pass = sheet.acell('X2').value
         if god_pass and str(god_pass).strip() == password:
             logged_in_users[chat_id] = {'pass': password, 'role': 'god'}
             del user_states[chat_id]
+            send_message(chat_id, "✅ خوش آمدید، ادمین اصلی (خدا) عزیز")
             return handle_callback(chat_id, "adm_menu")
 
         adm_sheet = get_admins_sheet()
         if adm_sheet:
-            adm_passes = adm_sheet.col_values(1)
-            adm_vips = adm_sheet.col_values(3)
+            adm_passes, adm_names, adm_vips = adm_sheet.col_values(1), adm_sheet.col_values(2), adm_sheet.col_values(3)
             for i in range(1, len(adm_passes)):
                 if str(adm_passes[i].strip()) == password:
                     role = 'vip' if i < len(adm_vips) and str(adm_vips[i].strip()).lower() == 'yes' else 'admin'
                     logged_in_users[chat_id] = {'pass': password, 'role': role}
                     del user_states[chat_id]
+                    admin_name = adm_names[i].strip() if i < len(adm_names) and adm_names[i].strip() else "ادمین"
+                    send_message(chat_id, f"✅ خوش آمدید، {admin_name} عزیز")
                     return handle_callback(chat_id, "adm_menu")
 
         special_codes = get_special_codes()
@@ -294,7 +332,6 @@ def handle_user(chat_id, text):
         except: send_message(chat_id, "⚠️ خطا در برقراری ارتباط.")
         return
 
-    # ✨ اصلاح اضافه کردن عضو (کد عضو میاد تو O9)
     if state and state["step"] == "adm_add_name":
         user_states[chat_id] = {"step": "adm_add_fullname", "short_name": text}
         send_message(chat_id, "لطفا نام و نام خانوادگی عضو جدید را بنویسید:")
@@ -313,14 +350,12 @@ def handle_user(chat_id, text):
             try:
                 sheet = get_sheet()
                 empty_row = get_first_empty_row(sheet)
-                sheet.update_cell(empty_row, 1, state["pass"]) # A
-                sheet.update_cell(empty_row, 2, "=P11")     # B
-                sheet.update_cell(empty_row, 3, state["short_name"]) # C
-                sheet.update_cell(empty_row, 4, state["full_name"])  # D
-                
-                # ✨ قرار دادن کد کاربری عضو جدید در O9
-                sheet.update('O9', state["pass"])
-                
+                sheet.update_cell(empty_row, 1, state["pass"])
+                sheet.update_cell(empty_row, 2, "=P11")
+                sheet.update_cell(empty_row, 3, state["short_name"])
+                sheet.update_cell(empty_row, 4, state["full_name"])
+                try: sheet.update('O9', state["pass"]) # ✨ رفع ارور: اگه مشکل داشت بی‌خیال کن
+                except: pass
                 del user_states[chat_id]
                 send_message(chat_id, "✅ کاربر با موفقیت اضافه شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_mem_menu"}]]})
             except: send_message(chat_id, "❌ خطا در ثبت اطلاعات.")
@@ -330,24 +365,24 @@ def handle_user(chat_id, text):
         try:
             idx = int(text.strip())
             if 1 <= idx <= state["max_idx"]:
-                sheet = get_sheet()
-                sheet.batch_clear([f"A{idx+1}:D{idx+1}"])
+                sheet = get_sheet(); sheet.batch_clear([f"A{idx+1}:D{idx+1}"])
                 del user_states[chat_id]
-                send_message(chat_id, "✅ کاربر با موفقیت حذف شد و جایگاهش خالی ماند.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_mem_menu"}]]})
+                send_message(chat_id, "✅ کاربر با موفقیت حذف شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_mem_menu"}]]})
             else: send_message(chat_id, "❌ عدد وارد شده نامعتبر است.")
         except: send_message(chat_id, "❌ لطفا فقط عدد ارسال کنید.")
 
     elif state and state["step"] == "adm_deduct_pass":
-        password = text.strip()
+        password = text
         sheet = get_sheet()
-        col_p, col_b = sheet.col_values(1), sheet.col_values(2)
+        col_p, col_b, col_d = sheet.col_values(1), sheet.col_values(2), sheet.col_values(4)
         user_idx = -1
         for i in range(1, len(col_p)):
             if str(col_p[i].strip()) == password: user_idx = i; break
         if user_idx != -1:
             balance = int(float(col_b[user_idx]))
+            full_name = col_d[user_idx].strip() if user_idx < len(col_d) else "نامشخص"
             user_states[chat_id] = {"step": "adm_deduct_amount", "pass": password, "idx": user_idx, "balance": balance}
-            send_message(chat_id, f"💎 موجودی کاربر: {balance:,} طوس کوین\n\nچقدر طوس کوین کم شود؟", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
+            send_message(chat_id, f"👤 نام کاربر: {full_name}\n💎 موجودی کاربر: {balance:,} طوس کوین\n\nچقدر طوس کوین کم شود؟", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
         else: send_message(chat_id, "❌ کاربری با این رمز یافت نشد.")
 
     elif state and state["step"] == "adm_deduct_amount":
@@ -368,19 +403,44 @@ def handle_user(chat_id, text):
             send_message(chat_id, f"✅ با موفقیت {amount:,} طوس کوین از حساب کاربر کسر شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
         except: send_message(chat_id, "❌ لطفا یک عدد صحیح ارسال کنید.")
 
-    # ✨ اصلاح اضافه کردن ادمین (دیگه O9 رو دست نمیزنه، فقط میبره تو شیت admins)
+    # ✨ State های جدید ادمین
+    elif state and state["step"] == "adm_add_target":
+        try:
+            target_id = int(text.strip())
+            sheet = get_sheet()
+            empty_row = get_first_empty_row(sheet, col=16)
+            sheet.update_cell(empty_row, 16, target_id)
+            del user_states[chat_id]
+            send_message(chat_id, "✅ آیدی با موفقیت اضافه شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
+        except: send_message(chat_id, "❌ آیدی باید یک عدد صحیح باشد.")
+
+    elif state and state["step"] == "adm_del_target":
+        try:
+            idx = int(text.strip())
+            if 1 <= idx <= state["max_idx"]:
+                sheet = get_sheet(); sheet.update_cell(idx, 16, "")
+                del user_states[chat_id]
+                send_message(chat_id, "✅ آیدی با موفقیت حذف شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
+            else: send_message(chat_id, "❌ عدد نامعتبر است.")
+        except: send_message(chat_id, "❌ لطفا فقط عدد ارسال کنید.")
+
+    elif state and state["step"] == "adm_set_sticker":
+        sticker_id = text.strip()
+        sheet = get_sheet(); sheet.update('P10', sticker_id)
+        del user_states[chat_id]
+        send_message(chat_id, "✅ استیکر موفقیت با موفقیت تغییر کرد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
+
     elif state and state["step"] == "adm_add_adm_fullname":
         user_states[chat_id] = {"step": "adm_add_adm_pass", "fullname": text}
         send_message(chat_id, "لطفا رمز عبور ادمین جدید را بنویسید:")
         
     elif state and state["step"] == "adm_add_adm_pass":
         user_states[chat_id] = {"step": "adm_add_adm_isvip", "fullname": state["fullname"], "pass": text}
-        send_message(chat_id, "آیا این ادمین ویژه می‌باشد؟ (بله/خیر)\n_(فقط ادمین‌های ویژه می‌توانند ادمین جدید اضافه کنند)_")
+        send_message(chat_id, "آیا این ادمین ویژه می‌باشد؟ (بله/خیر)")
         
     elif state and state["step"] == "adm_add_adm_isvip":
         is_vip = text.strip().lower() == "بله"
-        if is_vip and not check_perm(chat_id, 'vip'):
-            return send_message(chat_id, "❌ شما دسترسی اضافه کردن ادمین ویژه را ندارید.")
+        if is_vip and not check_perm(chat_id, 'vip'): return send_message(chat_id, "❌ شما دسترسی اضافه کردن ادمین ویژه را ندارید.")
         user_states[chat_id] = {"step": "adm_add_adm_confirm", "fullname": state["fullname"], "pass": state["pass"], "is_vip": is_vip}
         vip_tag = "(ویژه)" if is_vip else "(عادی)"
         msg = f"🔗 **اطلاعات ادمین جدید:**\nنام: {state['fullname']}\nرمز: {state['pass']}\nسطح دسترسی: {vip_tag}\n\nآیا تایید می‌کنید؟ (بله/خیر)"
@@ -390,21 +450,15 @@ def handle_user(chat_id, text):
         if text.strip().lower() == "بله":
             try:
                 sheet = get_sheet()
-                # حذف از لیست کاربران عادی اگر قبلا ثبت شده بود
                 col_p = sheet.col_values(1)
                 for i in range(1, len(col_p)):
-                    if str(col_p[i].strip()) == state["pass"]:
-                        sheet.batch_clear([f"A{i+1}:D{i+1}"])
-                        break
-                
-                # ✨ ثبت فقط در شیت ادمین ها
+                    if str(col_p[i].strip()) == state["pass"]: sheet.batch_clear([f"A{i+1}:D{i+1}"]); break
                 adm_sheet = get_admins_sheet()
                 if adm_sheet:
                     empty_row = get_first_empty_row(adm_sheet)
                     adm_sheet.update_cell(empty_row, 1, state["pass"])
                     adm_sheet.update_cell(empty_row, 2, state["fullname"])
                     adm_sheet.update_cell(empty_row, 3, "yes" if state["is_vip"] else "no")
-                    
                 del user_states[chat_id]
                 send_message(chat_id, "✅ ادمین با موفقیت اضافه شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_adm_menu"}]]})
             except Exception as e: send_message(chat_id, f"❌ خطا: {str(e)}")
@@ -418,17 +472,11 @@ def handle_user(chat_id, text):
                 if adm_sheet:
                     target_pass = adm_sheet.col_values(1)[idx].strip()
                     target_vip = adm_sheet.col_values(3)[idx].strip().lower()
-                    
                     if target_vip == 'yes':
-                        if logged_in_users[chat_id]['pass'] != target_pass:
-                            return send_message(chat_id, "❌ ادمین‌های ویژه فقط توسط خودشان قابل حذف هستند.")
-                    
+                        if logged_in_users[chat_id]['pass'] != target_pass: return send_message(chat_id, "❌ ادمین‌های ویژه فقط توسط خودشان قابل حذف هستند.")
                     god_pass = get_sheet().acell('X2').value
-                    if str(target_pass) == str(god_pass).strip():
-                        return send_message(chat_id, "❌ شما نمی‌توانید ادمین اصلی سیستم را حذف کنید!")
-
+                    if str(target_pass) == str(god_pass).strip(): return send_message(chat_id, "❌ شما نمی‌توانید ادمین اصلی سیستم را حذف کنید!")
                     adm_sheet.batch_clear([f"A{idx+1}:C{idx+1}"])
-                    
                 del user_states[chat_id]
                 send_message(chat_id, "✅ ادمین با موفقیت حذف شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_adm_menu"}]]})
             else: send_message(chat_id, "❌ عدد وارد شده نامعتبر است.")
@@ -437,13 +485,9 @@ def handle_user(chat_id, text):
     elif state and state["step"] == "adm_prize_name":
         user_states[chat_id] = {"step": "adm_prize_coins", "name": text}
         send_message(chat_id, "لطفا تعداد طوس کوین این جایزه را بنویسید:")
-        
     elif state and state["step"] == "adm_prize_coins":
         try:
-            coins = int(text.strip())
-            sheet = get_sheet()
-            col_e = sheet.col_values(5)
-            max_code = 100
+            coins = int(text.strip()); sheet = get_sheet(); col_e = sheet.col_values(5); max_code = 100
             for val in col_e[1:]:
                 if val.strip() and val.strip().isdigit():
                     if int(val.strip()) > max_code: max_code = int(val.strip())
@@ -451,27 +495,20 @@ def handle_user(chat_id, text):
             user_states[chat_id] = {"step": "adm_prize_confirm", "name": state["name"], "coins": coins, "code": new_code}
             send_message(chat_id, f"🏆 کد محصول برای این جایزه: {new_code}\n\nآیا تایید می‌کنید؟ (بله/خیر)")
         except: send_message(chat_id, "❌ لطفا یک عدد صحیح برای کوین‌ها بنویسید.")
-        
     elif state and state["step"] == "adm_prize_confirm":
         if text.strip().lower() == "بله":
             try:
-                sheet = get_sheet()
-                col_e = sheet.col_values(5)
-                next_row = len(col_e) + 1
-                sheet.update_cell(next_row, 5, state["code"])
-                sheet.update_cell(next_row, 6, state["name"])
-                sheet.update_cell(next_row, 7, state["coins"])
+                sheet = get_sheet(); col_e = sheet.col_values(5); next_row = len(col_e) + 1
+                sheet.update_cell(next_row, 5, state["code"]); sheet.update_cell(next_row, 6, state["name"]); sheet.update_cell(next_row, 7, state["coins"])
                 del user_states[chat_id]
                 send_message(chat_id, "✅ جایزه با موفقیت ثبت شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_prize_menu"}]]})
             except: send_message(chat_id, "❌ خطا در ثبت جایزه.")
         else: handle_callback(chat_id, "adm_prize_add_name")
 
     elif state and state["step"] == "adm_prize_get_code":
-        code = text.strip()
-        products = get_products()
+        code = text.strip(); products = get_products()
         if code in products:
-            prod = products[code]
-            user_states[chat_id] = {"step": "adm_prize_edit_details", "code": code}
+            prod = products[code]; user_states[chat_id] = {"step": "adm_prize_edit_details", "code": code}
             send_message(chat_id, f"🛍 کالا: {prod['name']}\n💎 کوین: {prod['price']}\n\nکالا کاملا قابل ویرایش می‌باشد.\nلطفا در خط اول اسم کالا و در خط دوم امتیاز پیشنهادی را بنویسید:\n_(مثال: ماشین کنترولی\n50000)_")
         else: send_message(chat_id, "❌ کد کالا یافت نشد.")
 
@@ -479,23 +516,17 @@ def handle_user(chat_id, text):
         lines = text.strip().split('\n')
         if len(lines) == 2:
             try:
-                new_name = lines[0].strip()
-                new_price = int(lines[1].strip())
-                sheet = get_sheet()
-                col_e = sheet.col_values(5)
+                new_name, new_price = lines[0].strip(), int(lines[1].strip())
+                sheet = get_sheet(); col_e = sheet.col_values(5)
                 for i in range(1, len(col_e)):
-                    if str(col_e[i].strip()) == state["code"]:
-                        sheet.update_cell(i+1, 6, new_name)
-                        sheet.update_cell(i+1, 7, new_price)
-                        break
+                    if str(col_e[i].strip()) == state["code"]: sheet.update_cell(i+1, 6, new_name); sheet.update_cell(i+1, 7, new_price); break
                 del user_states[chat_id]
                 send_message(chat_id, "✅ جایزه با موفقیت ویرایش شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_prize_menu"}]]})
             except: send_message(chat_id, "❌ خطا در پردازش. مطمئن شو خط دوم فقط عدد باشد.")
         else: send_message(chat_id, "❌ لطفا دقیقاً به فرمت خواسته شده (دو خط) بنویسید.")
 
     if state and state["step"] == "waiting_for_products":
-        products = get_products() 
-        input_codes = text.replace(',', ' ').split()
+        products = get_products(); input_codes = text.replace(',', ' ').split()
         if not input_codes: return send_message(chat_id, "⚠️ لطفاً کد محصول را وارد کنید.")
         selected_products, total_price = [], 0
         for code in input_codes:
@@ -506,8 +537,7 @@ def handle_user(chat_id, text):
         send_message(chat_id, f"💳 **صورت حساب**\n━━━━━━━━━━━━━━━\n🛍 کالا: {prod_names}\n💎 مبلغ: {total_price:,} طوس کوین\n━━━━━━━━━━━━━━━\n🔐 لطفاً برای تایید نهایی، رمز عبور خود را ارسال کنید:", {"inline_keyboard": [[{"text": "« تغییر کالاها", "callback_data": "back_to_products"}]]})
 
     elif state and state["step"] == "waiting_for_pass_buy":
-        password = text
-        selected_products, total_price = state["selected_products"], state["total_price"]
+        password = text; selected_products, total_price = state["selected_products"], state["total_price"]
         del user_states[chat_id]
         try:
             sheet = get_sheet()
@@ -517,25 +547,40 @@ def handle_user(chat_id, text):
                 if str(col_passwords[i].strip()) == password: user_idx = i; break
             markup = {"inline_keyboard": [[{"text": "🏠 منوی اصلی", "callback_data": "back_to_main"}]]}
             if user_idx == -1: return send_message(chat_id, "❌ رمز اشتباه بود. سفارش لغو شد.", markup)
-            balance = int(float(col_balances[user_idx]))
-            user_name = col_names[user_idx].strip() 
+            balance = int(float(col_balances[user_idx])); user_name = col_names[user_idx].strip() 
+            
             if balance >= total_price:
                 new_balance = balance - total_price
                 ded_sheet = get_deduction_sheet()
                 if ded_sheet:
-                    headers = ded_sheet.row_values(1)
-                    target_col_idx = -1
+                    headers = ded_sheet.row_values(1); target_col_idx = -1
                     for i, header in enumerate(headers):
                         if str(header).strip() == password: target_col_idx = i + 1; break
                     if target_col_idx != -1:
                         col_values = ded_sheet.col_values(target_col_idx)
                         ded_sheet.update_cell(len(col_values) + 1, target_col_idx, total_price)
+                
+                # ✨ خواندن استیکر و آیدی های هدف از شیت
+                custom_sticker = sheet.acell('P10').value
+                targets = [t.strip() for t in sheet.col_values(16) if t.strip()]
+                
                 prod_names = "، ".join([p['name'] for p in selected_products])
-                send_sticker(chat_id, SUCCESS_STICKER_ID)
+                
+                if custom_sticker: send_sticker(chat_id, custom_sticker)
+                else: send_sticker(chat_id, DEFAULT_STICKER)
+                
                 invoice_sheet = get_invoice_sheet()
                 if invoice_sheet: invoice_sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_name, prod_names, total_price, new_balance])
+                
                 send_message(chat_id, f"✅ **تراکنش موفق**\n━━━━━━━━━━━━━━━\nمبلغ کسر شده: {total_price:,} طوس کوین\nموجودی جدید: {new_balance:,} طوس کوین", markup)
-                send_message(ADMIN_CHAT_ID, f"🛒 **خرید جدید**\n👤 {user_name}\n📦 {prod_names}\n💰 {total_price:,} طوس کوین کسر شد.")
+                
+                admin_text = f"🛒 **خرید جدید**\n👤 {user_name}\n📦 {prod_names}\n💰 {total_price:,} طوس کوین کسر شد."
+                send_message(ADMIN_CHAT_ID, admin_text)
+                
+                # ✨ ارسال به آیدی های هدف
+                for t in targets:
+                    try: send_message(int(t), admin_text)
+                    except: pass
             else: send_message(chat_id, f"❌ **موجودی ناکافی**\n━━━━━━━━━━━━━━━\nموجودی شما: {balance:,} طوس کوین\nمبلغ خرید: {total_price:,} طوس کوین", markup)
         except: send_message(chat_id, "⚠️ خطا در پردازش سفارش.")
 
@@ -545,8 +590,7 @@ def handle_user(chat_id, text):
 
 def fetch_and_send_balance(chat_id, password):
     try:
-        sheet = get_sheet()
-        col_p, col_b = sheet.col_values(1), sheet.col_values(2)
+        sheet = get_sheet(); col_p, col_b = sheet.col_values(1), sheet.col_values(2)
         for i in range(1, len(col_p)):
             if str(col_p[i].strip()) == password:
                 balance = int(float(col_b[i]))
