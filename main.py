@@ -167,6 +167,7 @@ def handle_callback(chat_id, data):
         user_states[chat_id] = {"step": "adm_deduct_pass"}
         send_message(chat_id, "لطفا کد کاربری (رمز عبور) عضو را وارد کنید:", {"inline_keyboard": [back_btn]})
 
+    # ✨ تنظیمات مقاصد (ستون U و V)
     elif data == "adm_ser_targets_menu":
         sheet = get_sheet()
         ids = sheet.col_values(22) # ستون V
@@ -177,13 +178,13 @@ def handle_callback(chat_id, data):
                 name = names[i].strip() if i < len(names) and names[i].strip() else "بدون نام"
                 current_targets += f"• {name} (آیدی: `{ids[i].strip()}`)\n"
         
-        msg = f"📨 **مدیریت مقاصد سفارشات**\n━━━━━━━━━━━━━━━\nمقاصد فعلی:\n{current_targets if current_targets else 'خالی'}\n\n_آیدی عددی را بدون @ ارسال کنید._"
+        msg = f"📨 **مدیریت مقاصد سفارشات**\n━━━━━━━━━━━━━━━\nمقاصد فعلی:\n{current_targets if current_targets else 'خالی'}\n\n_آیدی عددی را بدون @ ارسال کنید._\n_راهنما: وارد پی‌وی شخص شوید و روی نام اون کلیک راست کنید._"
         markup = {"inline_keyboard": [[{"text": "➕ افزودن آیدی", "callback_data": "adm_ser_add_target"}], [{"text": "➖ حذف آیدی", "callback_data": "adm_ser_del_target"}], [{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]}
         send_message(chat_id, msg, markup)
 
     elif data == "adm_ser_add_target":
         user_states[chat_id] = {"step": "adm_add_target"}
-        send_message(chat_id, "لطفاً شناسه عددی جدید را ارسال کنید (توی ستون V ثبت میشود):", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
+        send_message(chat_id, "لطفاً شناسه عددی جدید را ارسال کنید (توی ستون V ثبت میشود، اسمش رو خودت دستی توی U بنویس):", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
 
     elif data == "adm_ser_del_target":
         sheet = get_sheet(); ids = sheet.col_values(22)
@@ -195,6 +196,7 @@ def handle_callback(chat_id, data):
         user_states[chat_id] = {"step": "adm_del_target", "max_idx": len(ids)}
         send_message(chat_id, text_list, {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
 
+    # ✨ تنظیمات استیکر (سلول T1)
     elif data == "adm_ser_sticker_menu":
         sheet = get_sheet(); current_sticker = sheet.acell('T1').value or "ندارد"
         send_message(chat_id, f"🖼 **استیکر موفقیت**\n━━━━━━━━━━━━━━━\nاستیکر فعلی (T1):\n`{current_sticker}`\n\nلطفاً آیدی استیکر جدید را ارسال کنید:", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
@@ -254,7 +256,7 @@ def handle_callback(chat_id, data):
     elif data == "back_to_main": show_main_menu(chat_id)
     elif data == "back_to_more": handle_callback(chat_id, "show_more_menu")
     elif data == "back_to_products": user_states[chat_id] = {"step": "waiting_for_products"}; send_message(chat_id, "🛒 لطفاً کد کالا را ارسال کنید:")
-    elif data == "back_to_login": user_states[chat_id] = {"step": "waiting_forlogin"}; send_message(chat_id, "🔐 لطفاً رمز عبور خود را ارسال کنید:")
+    elif data == "back_to_login": user_states[chat_id] = {"step": "waiting_for_login"}; send_message(chat_id, "🔐 لطفاً رمز عبور خود را ارسال کنید:")
     elif data == "adm_none": pass
 
     elif data == "order":
@@ -353,9 +355,10 @@ def handle_user(chat_id, text):
             try:
                 sheet = get_sheet()
                 empty_row = get_first_empty_row(sheet)
-                sheet.update_cell(empty_row, 1, state["pass"]) 
-                sheet.update_cell(empty_row, 3, state["short_name"]) 
-                sheet.update_cell(empty_row, 4, state["full_name"])  
+                sheet.update_cell(empty_row, 1, state["pass"]) # A
+                # ✨ ستون B دست نخورده تا فرمول خودت کار کنه
+                sheet.update_cell(empty_row, 3, state["short_name"]) # C
+                sheet.update_cell(empty_row, 4, state["full_name"])  # D
                 try: sheet.update('O9', state["pass"])
                 except: pass
                 del user_states[chat_id]
@@ -391,13 +394,16 @@ def handle_user(chat_id, text):
         try:
             amount = int(text.strip())
             if amount <= 0: return send_message(chat_id, "❌ عدد باید بزرگتر از صفر باشد.")
-            password = state["pass"]
-            
-            # ✨ ثبت عمودی در شیت کسریات (رمز در A ، مبلغ در B)
+            password, user_idx = state["pass"], state["idx"]
             ded_sheet = get_deduction_sheet()
             if ded_sheet:
-                ded_sheet.append_row([password, amount])
-            
+                headers = ded_sheet.row_values(1)
+                target_col_idx = -1
+                for i, header in enumerate(headers):
+                    if str(header).strip() == password: target_col_idx = i + 1; break
+                if target_col_idx != -1:
+                    col_values = ded_sheet.col_values(target_col_idx)
+                    ded_sheet.update_cell(len(col_values) + 1, target_col_idx, amount)
             del user_states[chat_id]
             send_message(chat_id, f"✅ با موفقیت {amount:,} طوس کوین از حساب کاربر کسر شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
         except: send_message(chat_id, "❌ لطفا یک عدد صحیح ارسال کنید.")
@@ -406,7 +412,7 @@ def handle_user(chat_id, text):
         try:
             target_id = int(text.strip())
             sheet = get_sheet()
-            empty_row = get_first_empty_row(sheet, col=22) 
+            empty_row = get_first_empty_row(sheet, col=22) # ستون V
             sheet.update_cell(empty_row, 22, target_id)
             del user_states[chat_id]
             send_message(chat_id, "✅ آیدی با موفقیت در ستون V ثبت شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
@@ -416,7 +422,7 @@ def handle_user(chat_id, text):
         try:
             idx = int(text.strip())
             if 1 <= idx <= state["max_idx"]:
-                sheet = get_sheet(); sheet.update_cell(idx, 22, "") 
+                sheet = get_sheet(); sheet.update_cell(idx, 22, "") # پاک کردن ستون V
                 del user_states[chat_id]
                 send_message(chat_id, "✅ آیدی با موفقیت حذف شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_targets_menu"}]]})
             else: send_message(chat_id, "❌ عدد نامعتبر است.")
@@ -424,7 +430,7 @@ def handle_user(chat_id, text):
 
     elif state and state["step"] == "adm_set_sticker":
         sticker_id = text.strip()
-        sheet = get_sheet(); sheet.update('T1', sticker_id) 
+        sheet = get_sheet(); sheet.update('T1', sticker_id) # ✨ انتقال به T1
         del user_states[chat_id]
         send_message(chat_id, "✅ استیکر موفقیت در T1 ذخیره شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_ser_menu"}]]})
 
@@ -500,7 +506,7 @@ def handle_user(chat_id, text):
                 sheet.update_cell(next_row, 5, state["code"]); sheet.update_cell(next_row, 6, state["name"]); sheet.update_cell(next_row, 7, state["coins"])
                 del user_states[chat_id]
                 send_message(chat_id, "✅ جایزه با موفقیت ثبت شد.", {"inline_keyboard": [[{"text": "« بازگشت", "callback_data": "adm_prize_menu"}]]})
-            except: send_message(chatid, "❌ خطا در ثبت جایزه.")
+            except: send_message(chat_id, "❌ خطا در ثبت جایزه.")
         else: handle_callback(chat_id, "adm_prize_add_name")
 
     elif state and state["step"] == "adm_prize_get_code":
@@ -549,11 +555,14 @@ def handle_user(chat_id, text):
             
             if balance >= total_price:
                 new_balance = balance - total_price
-                
-                # ✨ ثبت عمودی در شیت کسریات (رمز در A ، مبلغ در B)
                 ded_sheet = get_deduction_sheet()
                 if ded_sheet:
-                    ded_sheet.append_row([password, total_price])
+                    headers = ded_sheet.row_values(1); target_col_idx = -1
+                    for i, header in enumerate(headers):
+                        if str(header).strip() == password: target_col_idx = i + 1; break
+                    if target_col_idx != -1:
+                        col_values = ded_sheet.col_values(target_col_idx)
+                        ded_sheet.update_cell(len(col_values) + 1, target_col_idx, total_price)
                 
                 # ✨ خواندن استیکر از T1 و آیدی ها از ستون V
                 custom_sticker = sheet.acell('T1').value
